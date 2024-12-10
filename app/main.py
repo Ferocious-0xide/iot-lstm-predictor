@@ -1,12 +1,12 @@
 # app/main.py
 from fastapi import FastAPI
-from app.utils.db_utils import init_db
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-@app.on_event("startup")
-async def startup_event():
-    init_db()
 
 @app.get("/")
 async def root():
@@ -14,8 +14,4 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {
-        "status": "healthy",
-        "database": "connected",
-        "redis": "connected"
-    }
+    return {"status": "healthy"}
