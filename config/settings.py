@@ -2,18 +2,18 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings
 from typing import List
-import os
 
 class Settings(BaseSettings):
     # Application
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
+    SECRET_KEY: str
     
     # Database
-    DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
+    DATABASE_URL: str
     
-    # Redis
-    REDIS_URL: str = os.environ.get("REDIS_URL", "")
+    # Redis (optional for now)
+    REDIS_URL: str = "redis://localhost:6379"
     
     # CORS
     CORS_ORIGINS: List[str] = [
