@@ -12,10 +12,6 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
     
-    # Fix Heroku's Postgres URL if needed
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    
     # Redis
     REDIS_URL: str = os.environ.get("REDIS_URL", "")
     
@@ -36,4 +32,5 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
+    """Get cached settings"""
     return Settings()
