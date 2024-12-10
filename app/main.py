@@ -4,12 +4,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 import logging
 from app.utils.db_utils import init_db, get_db
+from app.api.routes import router as sensor_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# Include routers
+app.include_router(sensor_router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def startup_event():
