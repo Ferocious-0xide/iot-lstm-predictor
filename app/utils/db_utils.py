@@ -3,7 +3,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import QueuePool
-from contextlib import contextmanager
 import logging
 from config.settings import get_settings
 
@@ -46,15 +45,10 @@ def init_db():
         logger.error(f"Error initializing database: {str(e)}")
         raise
 
-@contextmanager
-def get_db() -> Session:
-    """Provide a transactional scope around a series of operations."""
+def get_db():
+    """FastAPI dependency for database sessions"""
     db = SessionLocal()
     try:
         yield db
-    except Exception as e:
-        logger.error(f"Database session error: {str(e)}")
-        db.rollback()
-        raise
     finally:
         db.close()
