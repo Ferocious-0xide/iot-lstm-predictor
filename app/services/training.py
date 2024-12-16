@@ -1,18 +1,19 @@
 # app/services/training.py
 from app.models.lstm_model import TempHumidityPredictor
-from app.utils.data_prep import SensorDataLoader
+from app.utils.advanced_data_prep import AdvancedSensorDataLoader
 import logging
 
 logger = logging.getLogger(__name__)
 
 class ModelTrainingService:
     def __init__(self):
-        self.data_loader = SensorDataLoader()
+        self.data_loader = AdvancedSensorDataLoader()
         self.model = None
     
     async def train_model(self, sensor_id: str, csv_path: str):
-        """Train model for a specific sensor"""
+        """Train model with enhanced data preparation"""
         try:
+            # Use enhanced data loader
             data = self.data_loader.prepare_data(csv_path, sensor_id)
             
             self.model = TempHumidityPredictor()
