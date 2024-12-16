@@ -1,54 +1,55 @@
 # app/utils/db_utils.py
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.pool import QueuePool
+from contextlib import contextmanager
 import logging
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# Create database engine
-engine = create_engine(
-    settings.DATABASE_URL,
-    poolclass=QueuePool,
+# Create engines for both databases
+prediction_engine = create_engine(
+    settings.DATABASE_URL,  # Our app's database
     pool_size=5,
     max_overflow=10,
-    pool_timeout=30,
     pool_pre_ping=True
 )
 
-# Create sessionmaker
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
+sensor_engine = create_engine(
+    settings.SENSOR_DATABASE_URL,  # External sensor database (follower)
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_timeout=30,
+    pool_recycle=1800  # Recycle connections every 30 minutes
 )
 
-# Create base class for declarative models
+# Create session factories
+PredictionSession = sessionmaker(bind=prediction_engine)
+SensorSession = sessionmaker(bind=sensor_engine)
+
 Base = declarative_base()
 
-def init_db():
-    """Initialize database, creating all tables"""
+@contextmanager
+def get_prediction_db() -> Session:
+    """Get session for our prediction database"""
+    session = PredictionSession()
     try:
-        logger.info("Initializing database...")
-        Base.metadata.create_all(bind=engine)
-        
-        # Test connection
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-            conn.commit()
-            
-        logger.info("Database initialization complete")
-    except Exception as e:
-        logger.error(f"Error initializing database: {str(e)}")
-        raise
-
-def get_db():
-    """FastAPI dependency for database sessions"""
-    db = SessionLocal()
-    try:
-        yield db
+        yield session
     finally:
-        db.close()
+        session.close()
+
+@contextmanager
+def get_sensor_db() -> Session:
+    """Get session for the external sensor database"""
+    session = SensorSession()
+    try:
+        yield session
+    finally:
+        session.close()
+
+def init_prediction_db():
+    """Initialize our prediction database"""
+    Base.metadata.create_all(prediction_engine)
