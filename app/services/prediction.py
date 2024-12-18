@@ -32,6 +32,32 @@ class PredictionService:
         except Exception as e:
             logger.error(f"Error loading models: {str(e)}")
             raise
+
+    async def initialize_sensors(self):
+        """Initialize sensors in the database if they don't exist"""
+        try:
+            with next(get_prediction_db()) as db:
+                for sensor_id in ['sensor_1', 'sensor_2', 'sensor_3', 'sensor_4', 'sensor_5']:
+                    # Check if sensor exists
+                    result = db.execute(
+                        text("SELECT sensor_id FROM sensors WHERE sensor_id = :sensor_id"),
+                        {"sensor_id": sensor_id}
+                    ).first()
+                    
+                    if not result:
+                        # Add sensor if it doesn't exist
+                        db.execute(
+                            text("INSERT INTO sensors (sensor_id, description, is_active) VALUES (:sensor_id, :description, TRUE)"),
+                            {
+                                "sensor_id": sensor_id,
+                                "description": f"IoT Sensor {sensor_id[-1]}"
+                            }
+                        )
+                db.commit()
+                logger.info("Sensors initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing sensors: {e}")
+            raise
     
     def prepare_sequence(self, readings: List[Dict], sensor_id: str):
         """Prepare sequence for prediction"""
@@ -50,13 +76,12 @@ class PredictionService:
             logger.info(f"Normalized temps shape: {temps_norm.shape}")
             logger.info(f"Normalized humids shape: {humids_norm.shape}")
             
-            # Reshape to match the model's expected input shape
-            # Stack features first
-            sequence = np.column_stack((temps_norm, humids_norm))  # Should be shape (24, 2)
+            # Create sequence
+            sequence = np.column_stack((temps_norm, humids_norm))
             logger.info(f"Sequence shape after stack: {sequence.shape}")
             
             # Add batch dimension
-            sequence = np.expand_dims(sequence, axis=0)  # Shape becomes (1, 24, 2)
+            sequence = np.expand_dims(sequence, axis=0)
             logger.info(f"Final sequence shape: {sequence.shape}")
             
             return sequence
@@ -64,7 +89,7 @@ class PredictionService:
         except Exception as e:
             logger.error(f"Error preparing sequence: {str(e)}")
             raise
-    
+
     async def predict(
         self,
         sensor_id: str,
@@ -79,7 +104,7 @@ class PredictionService:
                     detail=f"No trained model found for sensor {sensor_id}"
                 )
             
-            if len(readings) < 24:  # Minimum sequence length
+            if len(readings) < 24:
                 raise HTTPException(
                     status_code=400,
                     detail="Need at least 24 readings for prediction"
@@ -98,7 +123,7 @@ class PredictionService:
             for step in range(steps_ahead):
                 # Get prediction
                 pred = model.predict(current_sequence, verbose=0)
-                temp_pred, humid_pred = pred[0][0], pred[1][0]  # Get first (and only) prediction
+                temp_pred, humid_pred = pred[0][0], pred[1][0]
                 
                 logger.info(f"Prediction shape - temp: {temp_pred.shape}, humid: {humid_pred.shape}")
                 
@@ -123,13 +148,10 @@ class PredictionService:
                 })
                 
                 # Update sequence for next prediction
-                # Reshape predictions to match sequence format
-                new_point = np.array([[temp_pred, humid_pred]])  # Shape: (1, 2)
-                
-                # Remove oldest point and add new prediction
+                new_point = np.array([[temp_pred, humid_pred]])
                 current_sequence = np.concatenate([
-                    current_sequence[:, 1:, :],  # Remove first timestep
-                    new_point.reshape(1, 1, 2)   # Add new point with correct shape
+                    current_sequence[:, 1:, :],
+                    new_point.reshape(1, 1, 2)
                 ], axis=1)
                 
                 logger.info(f"Updated sequence shape: {current_sequence.shape}")
@@ -151,36 +173,33 @@ class PredictionService:
             with next(get_sensor_db()) as db:
                 # Calculate timestamp threshold
                 threshold = datetime.utcnow() - timedelta(minutes=lookback_minutes)
-            
-            # Query latest readings - modified to use integer sensor_id
-            query = text("""
-                SELECT sensor_id, temperature, humidity, timestamp 
-                FROM sensor_readings 
-                WHERE sensor_id = :sensor_id 
-                AND timestamp > :threshold 
-                ORDER BY timestamp DESC 
-                LIMIT 24
-            """)
-            
-            # Convert sensor_id to integer
-            sensor_id_int = int(sensor_id)  # Convert '1' to 1
-            
-            result = db.execute(query, {
-                "sensor_id": sensor_id_int,  # Pass integer instead of string
-                "threshold": threshold
-            })
-            
-            readings = [
-                {
-                    "sensor_id": str(row.sensor_id),  # Convert back to string for consistency
-                    "temperature": row.temperature,
-                    "humidity": row.humidity,
-                    "timestamp": row.timestamp.isoformat()
-                }
-                for row in result
-            ]
-            
-            return readings[::-1]  # Reverse to get chronological order
+                
+                # Query latest readings
+                query = text("""
+                    SELECT sensor_id, temperature, humidity, timestamp 
+                    FROM sensor_readings 
+                    WHERE sensor_id = :sensor_id 
+                    AND timestamp > :threshold 
+                    ORDER BY timestamp DESC 
+                    LIMIT 24
+                """)
+                
+                result = db.execute(query, {
+                    "sensor_id": int(sensor_id),  # Convert to integer
+                    "threshold": threshold
+                })
+                
+                readings = [
+                    {
+                        "sensor_id": str(row.sensor_id),  # Convert back to string
+                        "temperature": row.temperature,
+                        "humidity": row.humidity,
+                        "timestamp": row.timestamp.isoformat()
+                    }
+                    for row in result
+                ]
+                
+                return readings[::-1]  # Reverse to get chronological order
         except Exception as e:
             logger.error(f"Error fetching sensor readings: {str(e)}")
             raise
@@ -196,7 +215,7 @@ class PredictionService:
                         humidity_prediction=pred['humidity'],
                         prediction_timestamp=datetime.fromisoformat(pred['timestamp']),
                         created_at=datetime.utcnow(),
-                        confidence_score=0.95  # You might want to calculate this
+                        confidence_score=0.95
                     )
                     db.add(new_prediction)
                 db.commit()
@@ -207,6 +226,12 @@ class PredictionService:
     async def predict_and_store(self, sensor_id: str, steps_ahead: int = 1) -> List[Dict]:
         """Get latest data, make predictions, and store them"""
         try:
+            # Debug: Check sensor format in database
+            with next(get_prediction_db()) as db:
+                result = db.execute(text("SELECT sensor_id FROM sensors"))
+                sensors = [row[0] for row in result]
+                logger.info(f"Existing sensor IDs in database: {sensors}")
+
             # Get latest readings
             readings = await self.get_latest_readings(sensor_id)
             

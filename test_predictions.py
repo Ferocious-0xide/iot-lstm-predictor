@@ -11,7 +11,10 @@ async def test_prediction_pipeline():
         # Initialize prediction service
         predictor = PredictionService()
         
-        # Test for one sensor first
+        # Initialize sensors first
+        await predictor.initialize_sensors()
+        
+        # Test for one sensor
         sensor_id = "1"
         logger.info(f"Testing predictions for sensor {sensor_id}...")
         
