@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.utils.db_utils import get_sensor_db, get_prediction_db
-from app.models.db_models import SensorReading, Prediction, ModelMetadata
+from app.models.db_models import SensorReading, Prediction, ModelMetadata, TrainedModel
+from app.utils.model_utils import load_model_from_db
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict
@@ -14,17 +15,23 @@ from app.utils.data_prep import SensorDataLoader
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-model_dir = "models"
 data_loader = SensorDataLoader()
-models = {}
+models = {}  # Cache for loaded models
 
-def load_model(sensor_id: str):
-    """Lazy load model only when needed"""
+def load_model(sensor_id: str, db: Session):
+    """Load model from database if not already in memory"""
     if sensor_id not in models:
-        model_path = f"{model_dir}/sensor_{sensor_id}_model"
-        if tf.io.gfile.exists(model_path):
-            models[sensor_id] = tf.keras.models.load_model(model_path)
-            logger.info(f"Loaded model for sensor {sensor_id}")
+        try:
+            model = load_model_from_db(db, f"sensor_{sensor_id}")
+            if model:
+                models[sensor_id] = model
+                logger.info(f"Loaded model for sensor {sensor_id} from database")
+            else:
+                logger.error(f"No model found in database for sensor {sensor_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Error loading model from database: {e}")
+            return None
     return models.get(sensor_id)
 
 @router.get("/api/v1/sensors/{sensor_id}/readings")
@@ -77,15 +84,15 @@ async def get_sensor_readings(
 async def get_predictions(
     sensor_id: str,
     steps_ahead: int = 3,
-    db: Session = Depends(get_sensor_db)
+    db: Session = Depends(get_prediction_db)
 ):
     """Get predictions for a sensor"""
     try:
         # Get latest readings
         readings = await get_sensor_readings(sensor_id, limit=24)
         
-        # Load model if not already loaded
-        model = load_model(sensor_id)
+        # Load model from database if needed
+        model = load_model(sensor_id, db)
         if not model:
             raise HTTPException(
                 status_code=404,
