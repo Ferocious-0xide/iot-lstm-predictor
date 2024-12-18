@@ -8,10 +8,19 @@ psycopg2-binary==2.9.9
 python-dotenv==1.0.0
 alembic==1.13.1
 
+# Template engine
+jinja2==3.1.4
+
 # ML/Data Science
-tensorflow-cpu==2.15.0  # Specifically using CPU version for Heroku
+tensorflow-cpu==2.15.0
 numpy==1.26.2
 pandas==2.1.4
+
+# Server dependencies
+uvloop==0.21.0
+httptools==0.6.4
+watchfiles==1.0.0
+websockets==14.1
 
 # Optional dependencies
 python-dateutil==2.9.0.post0
@@ -19,8 +28,5 @@ pytz==2024.2
 pydantic_core==2.14.6
 starlette==0.35.1
 
-# Server dependencies
-uvloop==0.21.0
-httptools==0.6.4
-watchfiles==1.0.0
-websockets==14.1
+
+aiofiles==23.2.1  # For serving static files
