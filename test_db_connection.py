@@ -1,36 +1,21 @@
-# test_db_connection.py
-from app.utils.db_utils import get_sensor_db
-from sqlalchemy import text
 import logging
+from app.utils.db_utils import test_database_connections
+from config.settings import get_settings
 
+# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def test_sensor_db_connection():
-    """Test connection to sensor database"""
-    try:
-        with get_sensor_db() as db:
-            # Try to get table information
-            result = db.execute(text("""
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public'
-            """))
-            tables = [row[0] for row in result]
-            logger.info(f"Found tables: {tables}")
-            
-            # Try to get a sample reading
-            result = db.execute(text("""
-                SELECT COUNT(*) 
-                FROM sensor_readings
-            """))
-            count = result.scalar()
-            logger.info(f"Total sensor readings: {count}")
-            
-            return True
-    except Exception as e:
-        logger.error(f"Database connection test failed: {str(e)}")
-        return False
+def main():
+    settings = get_settings()
+    logger.info("Testing database connections...")
+    logger.info(f"Environment: {settings.ENVIRONMENT}")
+    
+    # Test connections
+    if test_database_connections():
+        logger.info("✅ All database connections successful!")
+    else:
+        logger.error("❌ Database connection test failed")
 
 if __name__ == "__main__":
-    test_sensor_db_connection()
+    main()
