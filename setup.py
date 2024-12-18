@@ -1,13 +1,15 @@
-# setup.py
-from setuptools import setup, find_namespace_packages
+from setuptools import setup, find_packages
 
 setup(
     name="iot-lstm-predictor",
     version="1.0.0",
-    packages=find_namespace_packages(include=["app*"]),
+    packages=find_packages(),  # Changed from find_namespace_packages
     include_package_data=True,
     package_data={
-        'app': ['templates/*', 'models/*', 'models/*.py'],
+        'app': [
+            'templates/*',
+            'models/**/*',  # Include all files in models subdirectories
+        ],
     },
     install_requires=[
         "fastapi==0.109.0",

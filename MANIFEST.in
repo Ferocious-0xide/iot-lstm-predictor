@@ -1,1 +1,4 @@
-recursive-include app/models *.py
+include requirements.txt
+recursive-include app/templates *
+recursive-include app/models *
+recursive-include models *  # For your trained models
