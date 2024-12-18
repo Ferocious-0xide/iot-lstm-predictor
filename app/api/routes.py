@@ -3,14 +3,27 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.utils.db_utils import get_sensor_db, get_prediction_db
-from app.services.prediction import PredictionService
+from app.models.db_models import SensorReading, Prediction, ModelMetadata
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict
+import tensorflow as tf
+import numpy as np
+from app.utils.data_prep import SensorDataLoader
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-prediction_service = PredictionService()
+
+model_dir = "models"
+data_loader = SensorDataLoader()
+models = {}
+
+# Load models at startup
+for sensor_id in ['1', '2', '3', '4', '5']:
+    model_path = f"{model_dir}/sensor_{sensor_id}_model"
+    if tf.io.gfile.exists(model_path):
+        models[sensor_id] = tf.keras.models.load_model(model_path)
+        logger.info(f"Loaded model for sensor {sensor_id}")
 
 @router.get("/api/v1/sensors/{sensor_id}/readings")
 async def get_sensor_readings(
@@ -32,7 +45,7 @@ async def get_sensor_readings(
         
         result = db.execute(
             query,
-            {"sensor_id": sensor_id, "limit": limit}
+            {"sensor_id": int(sensor_id)}
         ).fetchall()
         
         if not result:
@@ -43,7 +56,7 @@ async def get_sensor_readings(
             )
         
         readings = [{
-            "sensor_id": row[0],
+            "sensor_id": str(row[0]),
             "temperature": row[1],
             "humidity": row[2],
             "timestamp": row[3].isoformat()
@@ -61,12 +74,84 @@ async def get_sensor_readings(
 @router.get("/api/v1/sensors/{sensor_id}/predict")
 async def get_predictions(
     sensor_id: str,
-    steps: int = 3
+    steps_ahead: int = 3,
+    db: Session = Depends(get_sensor_db)
 ):
     """Get predictions for a sensor"""
     try:
-        predictions = await prediction_service.predict_and_store(sensor_id, steps)
+        # Get latest readings
+        readings = await get_sensor_readings(sensor_id, limit=24)
+        
+        if not readings:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No readings found for sensor {sensor_id}"
+            )
+            
+        if sensor_id not in models:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No model found for sensor {sensor_id}"
+            )
+        
+        # Prepare data
+        temps = np.array([r['temperature'] for r in readings])
+        humids = np.array([r['humidity'] for r in readings])
+        
+        # Normalize
+        temps_norm = data_loader.normalize_data(temps, sensor_id, 'temperature')
+        humids_norm = data_loader.normalize_data(humids, sensor_id, 'humidity')
+        
+        # Create sequence
+        sequence = np.column_stack((temps_norm, humids_norm))
+        sequence = np.expand_dims(sequence, axis=0)
+        
+        # Make predictions
+        predictions = []
+        current_sequence = sequence
+        
+        for step in range(steps_ahead):
+            pred = models[sensor_id].predict(current_sequence, verbose=0)
+            temp_pred, humid_pred = pred[0][0], pred[1][0]
+            
+            # Denormalize
+            temp_denorm = data_loader.denormalize_data(temp_pred, sensor_id, 'temperature')
+            humid_denorm = data_loader.denormalize_data(humid_pred, sensor_id, 'humidity')
+            
+            # Create timestamp
+            last_timestamp = datetime.fromisoformat(readings[-1]['timestamp'])
+            pred_timestamp = last_timestamp + timedelta(minutes=5 * (step + 1))
+            
+            predictions.append({
+                'sensor_id': f"sensor_{sensor_id}",
+                'timestamp': pred_timestamp.isoformat(),
+                'temperature': float(temp_denorm),
+                'humidity': float(humid_denorm)
+            })
+            
+            # Update sequence for next prediction
+            new_point = np.array([[temp_pred, humid_pred]])
+            current_sequence = np.concatenate([
+                current_sequence[:, 1:, :],
+                new_point.reshape(1, 1, 2)
+            ], axis=1)
+        
+        # Store predictions
+        with next(get_prediction_db()) as pred_db:
+            for pred in predictions:
+                new_prediction = Prediction(
+                    sensor_id=pred['sensor_id'],
+                    temperature_prediction=pred['temperature'],
+                    humidity_prediction=pred['humidity'],
+                    prediction_timestamp=datetime.fromisoformat(pred['timestamp']),
+                    created_at=datetime.utcnow(),
+                    confidence_score=0.95
+                )
+                pred_db.add(new_prediction)
+            pred_db.commit()
+        
         return predictions
+        
     except Exception as e:
         logger.error(f"Error making predictions: {str(e)}")
         raise HTTPException(
@@ -80,7 +165,6 @@ async def get_sensor_stats(
 ):
     """Get statistics for all sensors"""
     try:
-        # Query for latest readings and predictions
         stats_query = text("""
             WITH sensor_stats AS (
                 SELECT 
