@@ -1,1 +1,1 @@
-web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+web: PYTHONPATH=/app pip install -e . && uvicorn app.main:app --host 0.0.0.0 --port $PORT

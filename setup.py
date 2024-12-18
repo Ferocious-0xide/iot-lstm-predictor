@@ -1,10 +1,10 @@
 # setup.py
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 
 setup(
     name="iot-lstm-predictor",
     version="1.0.0",
-    packages=find_packages(),
+    packages=find_namespace_packages(include=["app*"]),  # Changed to find_namespace_packages
     include_package_data=True,
     install_requires=[
         "fastapi==0.109.0",
@@ -23,9 +23,17 @@ setup(
         "python-multipart==0.0.6",
         "python-jose[cryptography]==3.3.0",
         "passlib[bcrypt]==1.7.4",
+        "jinja2==3.1.4",  # Added for templates
     ],
     python_requires=">=3.11",
     package_data={
-        '': ['*.json', '*.yaml', '*.sql', '*.ini'],
+        'app': [
+            'templates/*',  # Include template files
+            'models/*',     # Include model files
+            '*.json',
+            '*.yaml',
+            '*.sql',
+            '*.ini'
+        ],
     },
 )
