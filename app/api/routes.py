@@ -18,12 +18,14 @@ model_dir = "models"
 data_loader = SensorDataLoader()
 models = {}
 
-# Load models at startup
-for sensor_id in ['1', '2', '3', '4', '5']:
-    model_path = f"{model_dir}/sensor_{sensor_id}_model"
-    if tf.io.gfile.exists(model_path):
-        models[sensor_id] = tf.keras.models.load_model(model_path)
-        logger.info(f"Loaded model for sensor {sensor_id}")
+def load_model(sensor_id: str):
+    """Lazy load model only when needed"""
+    if sensor_id not in models:
+        model_path = f"{model_dir}/sensor_{sensor_id}_model"
+        if tf.io.gfile.exists(model_path):
+            models[sensor_id] = tf.keras.models.load_model(model_path)
+            logger.info(f"Loaded model for sensor {sensor_id}")
+    return models.get(sensor_id)
 
 @router.get("/api/v1/sensors/{sensor_id}/readings")
 async def get_sensor_readings(
@@ -82,13 +84,9 @@ async def get_predictions(
         # Get latest readings
         readings = await get_sensor_readings(sensor_id, limit=24)
         
-        if not readings:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No readings found for sensor {sensor_id}"
-            )
-            
-        if sensor_id not in models:
+        # Load model if not already loaded
+        model = load_model(sensor_id)
+        if not model:
             raise HTTPException(
                 status_code=404,
                 detail=f"No model found for sensor {sensor_id}"
@@ -111,7 +109,7 @@ async def get_predictions(
         current_sequence = sequence
         
         for step in range(steps_ahead):
-            pred = models[sensor_id].predict(current_sequence, verbose=0)
+            pred = model.predict(current_sequence, verbose=0)
             temp_pred, humid_pred = pred[0][0], pred[1][0]
             
             # Denormalize
