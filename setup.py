@@ -3,12 +3,13 @@ from setuptools import setup, find_packages
 setup(
     name="iot-lstm-predictor",
     version="1.0.0",
-    packages=find_packages(),  # Changed from find_namespace_packages
+    packages=find_packages(include=['app*', 'config*']),  # More explicit package inclusion
+    package_dir={'': '.'},  # Specify root directory
     include_package_data=True,
     package_data={
         'app': [
             'templates/*',
-            'models/**/*',  # Include all files in models subdirectories
+            'models/**/*',
         ],
     },
     install_requires=[

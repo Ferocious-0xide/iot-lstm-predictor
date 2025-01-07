@@ -8,6 +8,20 @@ from app.api.routes import router
 
 app = FastAPI()
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
 # Mount templates
 templates = Jinja2Templates(directory="app/templates")
 
@@ -31,6 +45,7 @@ templates.env.globals["now"] = now
 # Include API routes
 app.include_router(router)
 
+
 @app.get("/")
 async def dashboard(request: Request):
     return templates.TemplateResponse(
@@ -41,3 +56,7 @@ async def dashboard(request: Request):
             "default_sensor": "1"
         }
     )
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Application startup...")
