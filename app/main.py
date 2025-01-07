@@ -54,6 +54,7 @@ async def dashboard(request: Request):
         {
             "request": request,
             "sensors": range(1, 6),
+            "current_sensor": "1",
             "default_sensor": "1"
         }
     )
