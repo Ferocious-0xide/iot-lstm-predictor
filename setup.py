@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="iot-lstm-predictor",
     version="1.0.0",
-    packages=find_packages(include=['app*', 'config*']),  # More explicit package inclusion
+    packages=find_packages(where=". "),  # More explicit package inclusion
     package_dir={'': '.'},  # Specify root directory
     include_package_data=True,
     package_data={
