@@ -10,12 +10,11 @@
         <h2 class="text-xl font-bold mb-4">Sensor Selection</h2>
         <select class="w-full p-2 border rounded"
                 id="sensor-select"
-                hx-get="/api/v1/sensors/1/readings"
-                hx-target="#current-readings"
-                hx-trigger="change"
-                hx-swap="innerHTML">
+                onchange="updateSensor(this.value)">
             {% for sensor in sensors %}
-            <option value="{{ sensor }}">Sensor {{ sensor }}</option>
+            <option value="{{ sensor }}" {% if sensor == current_sensor %}selected{% endif %}>
+                Sensor {{ sensor }}
+            </option>
             {% endfor %}
         </select>
     </div>
@@ -26,7 +25,9 @@
         <div id="current-readings"
              hx-get="/api/v1/sensors/1/readings"
              hx-trigger="load, every 5s">
-            Loading...
+            <div class="htmx-indicator">
+                Fetching latest readings...
+            </div>
         </div>
     </div>
 
@@ -35,8 +36,16 @@
         <h2 class="text-xl font-bold mb-4">Predictions</h2>
         <div id="predictions"
              hx-get="/api/v1/sensors/1/predict"
-             hx-trigger="load">
-            Loading...
+             hx-trigger="load"
+             hx-indicator="#prediction-loading">
+            <div id="prediction-loading" class="htmx-indicator">
+                <p class="text-gray-600">Computing predictions... This may take a few moments.</p>
+                <div class="animate-pulse mt-2 space-y-2">
+                    <div class="h-4 bg-gray-200 rounded"></div>
+                    <div class="h-4 bg-gray-200 rounded w-5/6"></div>
+                    <div class="h-4 bg-gray-200 rounded w-4/6"></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -52,18 +61,39 @@
 </div>
 
 <script>
-document.getElementById('sensor-select').addEventListener('change', function() {
-    const sensorId = this.value;
-    
-    // Update the readings endpoint
+function updateSensor(sensorId) {
     const readings = document.getElementById('current-readings');
-    readings.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/readings`);
-    htmx.trigger(readings, 'load');
-    
-    // Update the predictions endpoint
     const predictions = document.getElementById('predictions');
+    
+    // Update endpoints
+    readings.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/readings`);
     predictions.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/predict`);
+    
+    // Trigger immediate updates
+    htmx.trigger(readings, 'load');
     htmx.trigger(predictions, 'load');
-});
+}
+
+// Add some styling for loading indicators
+document.head.insertAdjacentHTML('beforeend', `
+    <style>
+        .htmx-indicator {
+            display: none;
+        }
+        .htmx-request .htmx-indicator {
+            display: block;
+        }
+        .htmx-request.htmx-indicator {
+            display: block;
+        }
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+    </style>
+`);
 </script>
 {% endblock %}
