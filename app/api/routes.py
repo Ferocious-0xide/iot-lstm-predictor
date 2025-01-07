@@ -54,7 +54,10 @@ async def get_sensor_readings(
         
         result = db.execute(
             query,
-            {"sensor_id": int(sensor_id)}
+            {
+                "sensor_id": int(sensor_id),
+                "limit": limit
+            }
         ).fetchall()
         
         if not result:
