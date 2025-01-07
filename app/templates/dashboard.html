@@ -1,36 +1,19 @@
 <!-- app/templates/dashboard.html -->
-
-<!-- app/templates/dashboard.html -->
 {% extends "base.html" %}
 
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('sensor-select').addEventListener('change', function() {
-        const sensorId = this.value;
-        document.body.dispatchEvent(new CustomEvent('sensorChanged'));
-        // Update the URLs for the panels
-        document.getElementById('current-readings').setAttribute('hx-get', `/api/v1/sensors/${sensorId}/readings`);
-        document.getElementById('predictions').setAttribute('hx-get', `/api/v1/sensors/${sensorId}/predict`);
-    });
-});
-</script>
-
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     <!-- Sensor Selection -->
     <div class="bg-white p-4 rounded-lg shadow">
         <h2 class="text-xl font-bold mb-4">Sensor Selection</h2>
         <select class="w-full p-2 border rounded"
                 id="sensor-select"
-                hx-get="/api/v1/sensors/stats"
-                hx-target="#sensor-stats"
-                hx-trigger="change">
+                hx-trigger="change"
+                hx-swap="outerHTML">
             {% for sensor in sensors %}
-            <option value="{{ sensor }}" {% if sensor == current_sensor %}selected{% endif %}>
-                Sensor {{ sensor }}
-            </option>
+            <option value="{{ sensor }}">Sensor {{ sensor }}</option>
             {% endfor %}
         </select>
     </div>
@@ -39,8 +22,8 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="bg-white p-4 rounded-lg shadow">
         <h2 class="text-xl font-bold mb-4">Current Readings</h2>
         <div id="current-readings"
-             hx-get="/api/v1/sensors/${document.getElementById('sensor-select').value}/readings"
-             hx-trigger="load, every 5s, sensorChanged from:body">
+             hx-get="/api/v1/sensors/1/readings"
+             hx-trigger="load, every 5s">
             Loading...
         </div>
     </div>
@@ -49,8 +32,8 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="bg-white p-4 rounded-lg shadow">
         <h2 class="text-xl font-bold mb-4">Predictions</h2>
         <div id="predictions"
-             hx-get="/api/v1/sensors/${document.getElementById('sensor-select').value}/predict"
-             hx-trigger="load, sensorChanged from:body">
+             hx-get="/api/v1/sensors/1/predict"
+             hx-trigger="load">
             Loading...
         </div>
     </div>
@@ -65,4 +48,19 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 </div>
+
+<script>
+document.getElementById('sensor-select').addEventListener('change', function() {
+    const sensorId = this.value;
+    const readings = document.getElementById('current-readings');
+    const predictions = document.getElementById('predictions');
+    
+    readings.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/readings`);
+    predictions.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/predict`);
+    
+    // Trigger HTMX to make the requests
+    htmx.trigger(readings, 'load');
+    htmx.trigger(predictions, 'load');
+});
+</script>
 {% endblock %}
