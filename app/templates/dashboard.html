@@ -10,8 +10,10 @@
         <h2 class="text-xl font-bold mb-4">Sensor Selection</h2>
         <select class="w-full p-2 border rounded"
                 id="sensor-select"
+                hx-get="/api/v1/sensors/1/readings"
+                hx-target="#current-readings"
                 hx-trigger="change"
-                hx-swap="outerHTML">
+                hx-swap="innerHTML">
             {% for sensor in sensors %}
             <option value="{{ sensor }}">Sensor {{ sensor }}</option>
             {% endfor %}
@@ -52,14 +54,15 @@
 <script>
 document.getElementById('sensor-select').addEventListener('change', function() {
     const sensorId = this.value;
+    
+    // Update the readings endpoint
     const readings = document.getElementById('current-readings');
-    const predictions = document.getElementById('predictions');
-    
     readings.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/readings`);
-    predictions.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/predict`);
-    
-    // Trigger HTMX to make the requests
     htmx.trigger(readings, 'load');
+    
+    // Update the predictions endpoint
+    const predictions = document.getElementById('predictions');
+    predictions.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/predict`);
     htmx.trigger(predictions, 'load');
 });
 </script>

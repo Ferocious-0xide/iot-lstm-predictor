@@ -67,13 +67,13 @@ async def get_sensor_readings(
                 status_code=404,
                 detail=f"No readings found for sensor {sensor_id}"
             )
-        
-        readings = [{
-            "sensor_id": str(row[0]),
-            "temperature": row[1],
-            "humidity": row[2],
-            "timestamp": row[3].isoformat()
-        } for row in result]
+        most_recent = result[0]
+        return {
+            "sensor_id": str(most_recent[0]),
+            "temperature": most_recent[1],
+            "humidity": most_recent[2],
+            "timestamp": most_recent[3].isoformat()
+        } 
         
         return readings
         
