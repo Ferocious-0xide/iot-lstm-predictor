@@ -1,13 +1,12 @@
 # app/utils/db_utils.py
-from sqlalchemy import create_engine, text  # Added text to this line
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 import logging
 from config.settings import get_settings
 from sqlalchemy.ext.declarative import declarative_base
+from typing import Generator
 
 Base = declarative_base()
-
-
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -19,7 +18,7 @@ def create_db_engine(url: str, **kwargs):
 
 # Create engines using environment-based settings
 prediction_engine = create_db_engine(
-    settings.prediction_database_url,  # Now using HEROKU_POSTGRESQL_PURPLE_URL
+    settings.prediction_database_url,
     pool_size=5,
     max_overflow=10,
     pool_pre_ping=True,
@@ -27,29 +26,28 @@ prediction_engine = create_db_engine(
 )
 
 sensor_engine = create_db_engine(
-    settings.sensor_database_url,  # Using DATABASE_URL (follower database)
+    settings.sensor_database_url,
     pool_size=5,
     max_overflow=10,
     pool_pre_ping=True,
     pool_timeout=30,
-    # Adding read-only settings since this is a follower database
     execution_options={'readonly': True}
 )
 
 # Create session factories
 PredictionSessionLocal = sessionmaker(
-    autocommit=False, 
-    autoflush=False, 
+    autocommit=False,
+    autoflush=False,
     bind=prediction_engine
 )
 
 SensorSessionLocal = sessionmaker(
-    autocommit=False, 
-    autoflush=False, 
+    autocommit=False,
+    autoflush=False,
     bind=sensor_engine
 )
 
-def get_prediction_db():
+def get_prediction_db() -> Generator[Session, None, None]:
     """Get a database session for storing predictions"""
     db = PredictionSessionLocal()
     try:
@@ -57,7 +55,7 @@ def get_prediction_db():
     finally:
         db.close()
 
-def get_sensor_db():
+def get_sensor_db() -> Generator[Session, None, None]:
     """Get a read-only database session for sensor data"""
     db = SensorSessionLocal()
     try:

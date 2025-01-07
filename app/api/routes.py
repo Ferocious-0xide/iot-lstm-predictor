@@ -52,6 +52,7 @@ async def get_sensor_readings(
             LIMIT :limit
         """)
         
+        # Execute the query with the database session
         result = db.execute(
             query,
             {
