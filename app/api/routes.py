@@ -1,3 +1,89 @@
+# app/api/routes.py
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from app.utils.db_utils import get_sensor_db, get_prediction_db
+from app.models.db_models import SensorReading, Prediction, ModelMetadata, TrainedModel
+from app.utils.model_utils import load_model_from_db
+import logging
+from datetime import datetime, timedelta
+from typing import List, Dict
+import tensorflow as tf
+import numpy as np
+from app.utils.data_prep import SensorDataLoader
+
+# Initialize the router
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+data_loader = SensorDataLoader()
+models = {}  # Cache for loaded models
+
+def load_model(sensor_id: str, db: Session):
+    """Load model from database if not already in memory"""
+    if sensor_id not in models:
+        try:
+            model = load_model_from_db(db, f"sensor_{sensor_id}")
+            if model:
+                models[sensor_id] = model
+                logger.info(f"Loaded model for sensor {sensor_id} from database")
+            else:
+                logger.error(f"No model found in database for sensor {sensor_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Error loading model from database: {e}")
+            return None
+    return models.get(sensor_id)
+
+@router.get("/api/v1/sensors/{sensor_id}/readings")
+async def get_sensor_readings(
+    sensor_id: str,
+    limit: int = 24,
+    db: Session = Depends(get_sensor_db)
+):
+    """Get recent readings for a sensor from the external database"""
+    try:
+        logger.info(f"Attempting to fetch readings for sensor {sensor_id}")
+        
+        query = text("""
+            SELECT sensor_id, temperature, humidity, timestamp
+            FROM sensor_readings
+            WHERE sensor_id = :sensor_id
+            ORDER BY timestamp DESC
+            LIMIT :limit
+        """)
+        
+        result = db.execute(
+            query,
+            {
+                "sensor_id": int(sensor_id),
+                "limit": limit
+            }
+        ).fetchall()
+        
+        if not result:
+            logger.warning(f"No readings found for sensor {sensor_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"No readings found for sensor {sensor_id}"
+            )
+        
+        most_recent = result[0]
+        return {
+            "sensor_id": str(most_recent[0]),
+            "temperature": most_recent[1],
+            "humidity": most_recent[2],
+            "timestamp": most_recent[3].isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching sensor readings: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching sensor readings: {str(e)}"
+        )
+
+
 @router.get("/api/v1/sensors/{sensor_id}/predict")
 async def get_predictions(
     sensor_id: str,
