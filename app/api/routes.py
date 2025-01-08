@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 import tensorflow as tf
 import numpy as np
+import io
+import os
+import tempfile
 from app.utils.data_prep import SensorDataLoader
 
 # Initialize the router
@@ -19,13 +22,13 @@ logger = logging.getLogger(__name__)
 data_loader = SensorDataLoader()
 models = {}  # Cache for loaded models
 
-def load_model(sensor_id: str, db: Session):
+async def load_model(sensor_id: str, db: Session):
     """Load model from database if not already in memory"""
     if sensor_id not in models:
         try:
-            model = load_model_from_db(db, f"sensor_{sensor_id}")
-            if model:
-                models[sensor_id] = model
+            loaded_model = await load_model_from_db(db, f"sensor_{sensor_id}")
+            if loaded_model:
+                models[sensor_id] = loaded_model
                 logger.info(f"Loaded model for sensor {sensor_id} from database")
             else:
                 logger.error(f"No model found in database for sensor {sensor_id}")
@@ -52,7 +55,7 @@ async def get_sensor_readings(
             ORDER BY timestamp DESC
             LIMIT :limit
         """)
-
+        
         # Using the context manager for database operations
         with get_sensor_db_context() as session:
             result = session.execute(
@@ -62,7 +65,7 @@ async def get_sensor_readings(
                     "limit": limit
                 }
             ).fetchall()
-        
+            
             if not result:
                 logger.warning(f"No readings found for sensor {sensor_id}")
                 raise HTTPException(
@@ -77,7 +80,7 @@ async def get_sensor_readings(
                 "humidity": most_recent[2],
                 "timestamp": most_recent[3].isoformat()
             }
-        
+    
     except Exception as e:
         logger.error(f"Error fetching sensor readings: {str(e)}")
         raise HTTPException(
@@ -112,19 +115,19 @@ async def get_predictions(
             
             if not result:
                 raise HTTPException(status_code=404, detail="No sensor readings found")
-                
+            
             readings = {
                 "sensor_id": str(result[0]),
                 "temperature": result[1],
                 "humidity": result[2],
                 "timestamp": result[3].isoformat()
             }
-            
+        
         logger.info(f"Got readings data: {readings}")
         
         # Load model from database if needed
         logger.info("Loading model...")
-        model = load_model(sensor_id, db)
+        model = await load_model(sensor_id, db)
         if not model:
             logger.error(f"No model found for sensor {sensor_id}")
             raise HTTPException(
@@ -207,3 +210,48 @@ async def get_predictions(
     except Exception as e:
         logger.error(f"Error making predictions: {str(e)}")
         return {"status": "error", "detail": str(e)}
+
+@router.get("/api/v1/sensors/stats")
+async def get_sensor_stats(
+    db: Session = Depends(get_prediction_db)
+):
+    """Get statistics for all sensors"""
+    try:
+        stats_query = text("""
+            WITH sensor_stats AS (
+                SELECT 
+                    p.sensor_id,
+                    COUNT(*) as prediction_count,
+                    MAX(p.prediction_timestamp) as latest_prediction,
+                    AVG(p.temperature_prediction) as avg_temp,
+                    AVG(p.humidity_prediction) as avg_humidity
+                FROM predictions p
+                GROUP BY p.sensor_id
+            )
+            SELECT 
+                s.sensor_id,
+                s.prediction_count,
+                s.latest_prediction,
+                s.avg_temp,
+                s.avg_humidity
+            FROM sensor_stats s
+            ORDER BY s.sensor_id
+        """)
+        
+        result = db.execute(stats_query).fetchall()
+        
+        stats = [{
+            "sensor_id": row[0],
+            "prediction_count": row[1],
+            "latest_prediction": row[2].isoformat() if row[2] else None,
+            "avg_temperature": round(float(row[3]), 2) if row[3] else None,
+            "avg_humidity": round(float(row[4]), 2) if row[4] else None
+        } for row in result]
+        
+        return stats
+    except Exception as e:
+        logger.error(f"Error fetching sensor stats: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching sensor stats: {str(e)}"
+        )
