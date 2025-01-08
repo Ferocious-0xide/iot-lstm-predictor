@@ -4,42 +4,34 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="bg-white p-4 rounded-lg shadow">
-    <h2 class="text-xl font-bold mb-4">Sensor Selection</h2>
-    <select class="w-full p-2 border rounded"
-            id="sensor-select"
-            hx-get="/api/v1/sensors/${this.value}/readings"
-            hx-target="#current-readings"
-            hx-swap="innerHTML"
-            hx-trigger="change">
-        {% for sensor in sensors %}
-        <option value="{{ sensor }}">Sensor {{ sensor }}</option>
-        {% endfor %}
-    </select>
-</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- Sensor Selection -->
+    <div class="bg-white p-4 rounded-lg shadow">
+        <h2 class="text-xl font-bold mb-4">Sensor Selection</h2>
+        <select class="w-full p-2 border rounded"
+                id="sensor-select"
+                onchange="updateSensorData(this.value)">
+            {% for sensor in sensors %}
+            <option value="{{ sensor }}">Sensor {{ sensor }}</option>
+            {% endfor %}
+        </select>
+    </div>
 
     <!-- Current Readings -->
     <div class="bg-white p-4 rounded-lg shadow">
         <h2 class="text-xl font-bold mb-4">Current Readings</h2>
-        <div id="current-readings"
-             hx-get="/api/v1/sensors/${document.getElementById('sensor-select').value}/readings"
-             hx-trigger="load, every 5s">
-            <div class="htmx-indicator">Loading...</div>
+        <div id="current-readings">
+            Loading current readings...
         </div>
     </div>
 
     <!-- Predictions -->
-    <<div class="bg-white p-4 rounded-lg shadow">
+    <div class="bg-white p-4 rounded-lg shadow">
         <h2 class="text-xl font-bold mb-4">Predictions</h2>
-        <div id="predictions"
-             hx-get="/api/v1/sensors/${document.getElementById('sensor-select').value}/predict"
-             hx-trigger="load">
-             <div class="p-4">
-                 <div class="htmx-indicator">
-                     <p>Computing predictions... (this may take a few moments)</p>
-                     <div class="animate-spin">⌛</div>
-                 </div>
-             </div>
+        <div id="predictions">
+            <div class="animate-pulse">
+                Computing predictions...
+            </div>
         </div>
     </div>
 
@@ -49,20 +41,29 @@
         <div id="sensor-stats"
              hx-get="/api/v1/sensors/stats"
              hx-trigger="load">
-            Loading...
+            Loading statistics...
         </div>
     </div>
 </div>
 
 <script>
-    // Add console logging to help debug
-    htmx.on("htmx:afterRequest", function(evt) {
-        console.log("HTMX Request completed:", evt.detail.pathInfo.path);
-        console.log("Response:", evt.detail.xhr.response);
-    });
+function updateSensorData(sensorId) {
+    // Update current readings
+    htmx.ajax('GET', `/api/v1/sensors/${sensorId}/readings`, '#current-readings');
     
-    htmx.on("htmx:beforeRequest", function(evt) {
-        console.log("HTMX Request starting:", evt.detail.pathInfo.path);
-    });
-    </script>
+    // Update predictions
+    htmx.ajax('GET', `/api/v1/sensors/${sensorId}/predict`, '#predictions');
+}
+
+// Initialize with sensor 1
+document.addEventListener('DOMContentLoaded', function() {
+    updateSensorData('1');
+    
+    // Set up periodic refresh for current readings
+    setInterval(() => {
+        const sensorId = document.getElementById('sensor-select').value;
+        htmx.ajax('GET', `/api/v1/sensors/${sensorId}/readings`, '#current-readings');
+    }, 5000);
+});
+</script>
 {% endblock %}
