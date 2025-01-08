@@ -11,6 +11,7 @@ celery==5.3.6
 redis==5.0.1
 alembic==1.13.1
 pydantic==2.5.3
+pydantic-settings>=2.0.0  # Added this
 python-multipart==0.0.6
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
