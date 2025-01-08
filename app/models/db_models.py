@@ -1,10 +1,5 @@
-# app/models/db_models.py
-from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, ForeignKey, 
-    LargeBinary, JSON, Boolean
-)
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, LargeBinary, JSON, Boolean
+from sqlalchemy.orm import declarative_base, relationship  # Updated import
 from datetime import datetime
 
 Base = declarative_base()
@@ -26,8 +21,8 @@ class TrainedModel(Base):
     model_data = Column(LargeBinary, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     model_metrics = Column(JSON)
-    model_type = Column(String, nullable=False, default='lstm')  # Added to track model type
-    is_active = Column(Boolean, default=True)  # Added to track active model per sensor
+    model_type = Column(String, nullable=False, default='lstm')
+    is_active = Column(Boolean, default=True)
     
     # Relationships
     sensor = relationship("Sensor", back_populates="trained_models")
@@ -40,7 +35,7 @@ class Prediction(Base):
     model_id = Column(Integer, ForeignKey('trained_model.id'), nullable=False)
     prediction_value = Column(Float, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    confidence_score = Column(Float)  # Optional confidence score
+    confidence_score = Column(Float)
     
     # Relationships
     sensor = relationship("Sensor", back_populates="predictions")

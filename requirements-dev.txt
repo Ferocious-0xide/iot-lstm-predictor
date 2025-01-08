@@ -1,0 +1,6 @@
+# requirements-dev.txt - for development and testing
+-r requirements.txt  # Include all production requirements
+pytest>=8.2.0
+pytest-asyncio==0.25.2
+tensorflow>=2.15.0  # Full tensorflow for local development
+httpx==0.28.1
