@@ -4,48 +4,42 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <!-- Sensor Selection -->
-    <div class="bg-white p-4 rounded-lg shadow">
-        <h2 class="text-xl font-bold mb-4">Sensor Selection</h2>
-        <select class="w-full p-2 border rounded"
-                id="sensor-select"
-                onchange="updateSensor(this.value)">
-            {% for sensor in sensors %}
-            <option value="{{ sensor }}" {% if sensor == current_sensor %}selected{% endif %}>
-                Sensor {{ sensor }}
-            </option>
-            {% endfor %}
-        </select>
-    </div>
+<div class="bg-white p-4 rounded-lg shadow">
+    <h2 class="text-xl font-bold mb-4">Sensor Selection</h2>
+    <select class="w-full p-2 border rounded"
+            id="sensor-select"
+            hx-get="/api/v1/sensors/${this.value}/readings"
+            hx-target="#current-readings"
+            hx-swap="innerHTML"
+            hx-trigger="change">
+        {% for sensor in sensors %}
+        <option value="{{ sensor }}">Sensor {{ sensor }}</option>
+        {% endfor %}
+    </select>
+</div>
 
     <!-- Current Readings -->
     <div class="bg-white p-4 rounded-lg shadow">
         <h2 class="text-xl font-bold mb-4">Current Readings</h2>
         <div id="current-readings"
-             hx-get="/api/v1/sensors/1/readings"
+             hx-get="/api/v1/sensors/${document.getElementById('sensor-select').value}/readings"
              hx-trigger="load, every 5s">
-            <div class="htmx-indicator">
-                Fetching latest readings...
-            </div>
+            <div class="htmx-indicator">Loading...</div>
         </div>
     </div>
 
     <!-- Predictions -->
-    <div class="bg-white p-4 rounded-lg shadow">
+    <<div class="bg-white p-4 rounded-lg shadow">
         <h2 class="text-xl font-bold mb-4">Predictions</h2>
         <div id="predictions"
-             hx-get="/api/v1/sensors/1/predict"
-             hx-trigger="load"
-             hx-indicator="#prediction-loading">
-            <div id="prediction-loading" class="htmx-indicator">
-                <p class="text-gray-600">Computing predictions... This may take a few moments.</p>
-                <div class="animate-pulse mt-2 space-y-2">
-                    <div class="h-4 bg-gray-200 rounded"></div>
-                    <div class="h-4 bg-gray-200 rounded w-5/6"></div>
-                    <div class="h-4 bg-gray-200 rounded w-4/6"></div>
-                </div>
-            </div>
+             hx-get="/api/v1/sensors/${document.getElementById('sensor-select').value}/predict"
+             hx-trigger="load">
+             <div class="p-4">
+                 <div class="htmx-indicator">
+                     <p>Computing predictions... (this may take a few moments)</p>
+                     <div class="animate-spin">⌛</div>
+                 </div>
+             </div>
         </div>
     </div>
 
@@ -61,39 +55,14 @@
 </div>
 
 <script>
-function updateSensor(sensorId) {
-    const readings = document.getElementById('current-readings');
-    const predictions = document.getElementById('predictions');
+    // Add console logging to help debug
+    htmx.on("htmx:afterRequest", function(evt) {
+        console.log("HTMX Request completed:", evt.detail.pathInfo.path);
+        console.log("Response:", evt.detail.xhr.response);
+    });
     
-    // Update endpoints
-    readings.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/readings`);
-    predictions.setAttribute('hx-get', `/api/v1/sensors/${sensorId}/predict`);
-    
-    // Trigger immediate updates
-    htmx.trigger(readings, 'load');
-    htmx.trigger(predictions, 'load');
-}
-
-// Add some styling for loading indicators
-document.head.insertAdjacentHTML('beforeend', `
-    <style>
-        .htmx-indicator {
-            display: none;
-        }
-        .htmx-request .htmx-indicator {
-            display: block;
-        }
-        .htmx-request.htmx-indicator {
-            display: block;
-        }
-        .animate-pulse {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .5; }
-        }
-    </style>
-`);
-</script>
+    htmx.on("htmx:beforeRequest", function(evt) {
+        console.log("HTMX Request starting:", evt.detail.pathInfo.path);
+    });
+    </script>
 {% endblock %}
