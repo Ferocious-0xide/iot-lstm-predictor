@@ -29,15 +29,23 @@ class Settings(BaseSettings):
         # Allow extra fields to prevent validation errors
         extra = 'allow'
 
+    def _fix_postgres_url(self, url: str) -> str:
+        """Convert postgres:// to postgresql:// if needed"""
+        if url and url.startswith("postgres://"):
+            return url.replace("postgres://", "postgresql://", 1)
+        return url
+
     @property
     def sensor_database_url(self) -> str:
         """Get the sensor database URL (follower database)"""
-        return self.DATABASE_URL
+        return self._fix_postgres_url(self.DATABASE_URL)
 
     @property
     def prediction_database_url(self) -> str:
         """Get the predictor app's database URL"""
-        return self.HEROKU_POSTGRESQL_PURPLE_URL
+        # First try HEROKU_POSTGRESQL_PURPLE_URL, fall back to DATABASE_URL
+        url = self.HEROKU_POSTGRESQL_PURPLE_URL or self.DATABASE_URL
+        return self._fix_postgres_url(url)
 
 @lru_cache()
 def get_settings() -> Settings:
