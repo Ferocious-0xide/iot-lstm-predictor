@@ -39,21 +39,41 @@ def sample_data():
     ]
     return readings
 
+def create_test_model():
+    # Input layer
+    inputs = tf.keras.layers.Input(shape=(24, 2))
+    
+    # LSTM layers
+    x = tf.keras.layers.LSTM(64, return_sequences=True)(inputs)
+    x = tf.keras.layers.LSTM(32)(x)
+    
+    # Split into two heads for temperature and humidity
+    temp_output = tf.keras.layers.Dense(1, name='temperature')(x)
+    humid_output = tf.keras.layers.Dense(1, name='humidity')(x)
+    
+    # Create model with multiple outputs
+    model = tf.keras.Model(inputs=inputs, outputs=[temp_output, humid_output])
+    model.compile(optimizer='adam', loss='mse')
+    
+    return model
+
 def test_end_to_end_flow(db_session, sample_data):
     """Test the entire flow from model creation to prediction"""
     
     # 1. Create and save a model
-    model = tf.keras.Sequential([
-        tf.keras.layers.LSTM(64, input_shape=(24, 2), return_sequences=True),
-        tf.keras.layers.LSTM(32),
-        tf.keras.layers.Dense(2)
-    ])
-    model.compile(optimizer='adam', loss='mse')
+    model = create_test_model()
     
     # Create sample training data
     X = np.random.random((100, 24, 2))
-    y = np.random.random((100, 2))
-    history = model.fit(X, y, epochs=1, verbose=0)
+    y_temp = np.random.random((100, 1))
+    y_humid = np.random.random((100, 1))
+    
+    # Train model
+    history = model.fit(
+        X, [y_temp, y_humid],
+        epochs=1,
+        verbose=0
+    )
     
     # Save model
     persistence = ModelPersistence(db_session)
@@ -89,8 +109,8 @@ def test_model_versioning(db_session):
     persistence = ModelPersistence(db_session)
     
     # Create two versions of a model
-    model1 = tf.keras.Sequential([tf.keras.layers.Dense(1)])
-    model2 = tf.keras.Sequential([tf.keras.layers.Dense(1)])
+    model1 = create_test_model()
+    model2 = create_test_model()
     
     # Save both models
     record1 = persistence.save_model(model1, sensor_id=1, is_active=True)
@@ -109,16 +129,13 @@ def test_prediction_storage(db_session, sample_data):
     prediction_service = PredictionService(db_session)
     
     # Create and save a model first
-    model = tf.keras.Sequential([
-        tf.keras.layers.LSTM(32, input_shape=(24, 2)),
-        tf.keras.layers.Dense(2)
-    ])
+    model = create_test_model()
     model.compile(optimizer='adam', loss='mse')
     
     persistence = ModelPersistence(db_session)
     model_record = persistence.save_model(model, sensor_id=1, is_active=True)
     
-    # Make and store predictions synchronously
+    # Make and store predictions
     predictions = prediction_service.predict_sync(1, sample_data, steps_ahead=3)
     
     # Store predictions
