@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.utils.db_utils import get_sensor_db, get_prediction_db
+from app.utils.db_utils import get_sensor_db, get_prediction_db, get_sensor_db_context
 from app.models.db_models import SensorReading, Prediction, ModelMetadata, TrainedModel
 from app.utils.model_utils import load_model_from_db
 import logging
@@ -52,29 +52,31 @@ async def get_sensor_readings(
             ORDER BY timestamp DESC
             LIMIT :limit
         """)
+
+        # Using the context manager for database operations
+        with get_sensor_db_context() as session:
+            result = session.execute(
+                query,
+                {
+                    "sensor_id": int(sensor_id),
+                    "limit": limit
+                }
+            ).fetchall()
         
-        result = db.execute(
-            query,
-            {
-                "sensor_id": int(sensor_id),
-                "limit": limit
+            if not result:
+                logger.warning(f"No readings found for sensor {sensor_id}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No readings found for sensor {sensor_id}"
+                )
+            
+            most_recent = result[0]
+            return {
+                "sensor_id": str(most_recent[0]),
+                "temperature": most_recent[1],
+                "humidity": most_recent[2],
+                "timestamp": most_recent[3].isoformat()
             }
-        ).fetchall()
-        
-        if not result:
-            logger.warning(f"No readings found for sensor {sensor_id}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"No readings found for sensor {sensor_id}"
-            )
-        
-        most_recent = result[0]
-        return {
-            "sensor_id": str(most_recent[0]),
-            "temperature": most_recent[1],
-            "humidity": most_recent[2],
-            "timestamp": most_recent[3].isoformat()
-        }
         
     except Exception as e:
         logger.error(f"Error fetching sensor readings: {str(e)}")
@@ -82,7 +84,6 @@ async def get_sensor_readings(
             status_code=500,
             detail=f"Error fetching sensor readings: {str(e)}"
         )
-
 
 @router.get("/api/v1/sensors/{sensor_id}/predict")
 async def get_predictions(
@@ -94,9 +95,31 @@ async def get_predictions(
     try:
         logger.info(f"Starting predictions for sensor {sensor_id}")
         
-        # Get latest readings
+        # Get latest readings using a new database session
         logger.info("Fetching latest readings...")
-        readings = await get_sensor_readings(sensor_id, limit=24)
+        with get_sensor_db_context() as sensor_db:
+            query = text("""
+                SELECT sensor_id, temperature, humidity, timestamp
+                FROM sensor_readings
+                WHERE sensor_id = :sensor_id
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """)
+            result = sensor_db.execute(
+                query,
+                {"sensor_id": int(sensor_id)}
+            ).fetchone()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail="No sensor readings found")
+                
+            readings = {
+                "sensor_id": str(result[0]),
+                "temperature": result[1],
+                "humidity": result[2],
+                "timestamp": result[3].isoformat()
+            }
+            
         logger.info(f"Got readings data: {readings}")
         
         # Load model from database if needed
@@ -112,7 +135,7 @@ async def get_predictions(
         
         # Prepare data
         logger.info("Preparing data for prediction...")
-        temps = np.array([readings['temperature']])  # Modified since readings is now a single dict
+        temps = np.array([readings['temperature']])
         humids = np.array([readings['humidity']])
         logger.info(f"Temperature data: {temps}")
         logger.info(f"Humidity data: {humids}")
@@ -161,24 +184,22 @@ async def get_predictions(
             logger.info(f"Prediction {step + 1} complete: Temp={float(temp_denorm):.2f}, Humidity={float(humid_denorm):.2f}")
         
         logger.info("Storing predictions in database...")
-        # Store predictions
         try:
-            with next(get_prediction_db()) as pred_db:
-                for pred in predictions:
-                    new_prediction = Prediction(
-                        sensor_id=pred['sensor_id'],
-                        temperature_prediction=pred['temperature'],
-                        humidity_prediction=pred['humidity'],
-                        prediction_timestamp=datetime.fromisoformat(pred['timestamp']),
-                        created_at=datetime.utcnow(),
-                        confidence_score=0.95
-                    )
-                    pred_db.add(new_prediction)
-                pred_db.commit()
-                logger.info("Predictions stored successfully")
+            for pred in predictions:
+                new_prediction = Prediction(
+                    sensor_id=pred['sensor_id'],
+                    temperature_prediction=pred['temperature'],
+                    humidity_prediction=pred['humidity'],
+                    prediction_timestamp=datetime.fromisoformat(pred['timestamp']),
+                    created_at=datetime.utcnow(),
+                    confidence_score=0.95
+                )
+                db.add(new_prediction)
+            db.commit()
+            logger.info("Predictions stored successfully")
         except Exception as db_error:
             logger.error(f"Error storing predictions: {str(db_error)}")
-            # Continue even if storage fails
+            db.rollback()
         
         logger.info(f"Returning {len(predictions)} predictions")
         return {"status": "success", "predictions": predictions}

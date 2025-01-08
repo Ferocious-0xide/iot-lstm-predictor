@@ -5,6 +5,7 @@ import logging
 from config.settings import get_settings
 from sqlalchemy.ext.declarative import declarative_base
 from typing import Generator
+from contextlib import contextmanager
 
 Base = declarative_base()
 logger = logging.getLogger(__name__)
@@ -47,7 +48,8 @@ SensorSessionLocal = sessionmaker(
     bind=sensor_engine
 )
 
-def get_prediction_db() -> Generator[Session, None, None]:
+# FastAPI dependency
+async def get_prediction_db():
     """Get a database session for storing predictions"""
     db = PredictionSessionLocal()
     try:
@@ -55,9 +57,29 @@ def get_prediction_db() -> Generator[Session, None, None]:
     finally:
         db.close()
 
-def get_sensor_db() -> Generator[Session, None, None]:
+# FastAPI dependency
+async def get_sensor_db():
     """Get a read-only database session for sensor data"""
     db = SensorSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Context manager for use in scripts
+@contextmanager
+def get_sensor_db_context():
+    """Context manager for sensor database sessions"""
+    db = SensorSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@contextmanager
+def get_prediction_db_context():
+    """Context manager for prediction database sessions"""
+    db = PredictionSessionLocal()
     try:
         yield db
     finally:
@@ -67,13 +89,13 @@ def test_database_connections():
     """Test both database connections and verify tables"""
     try:
         # Test sensor database
-        with next(get_sensor_db()) as session:
+        with get_sensor_db_context() as session:
             result = session.execute(text("SELECT current_timestamp, current_database()"))
             timestamp, database = result.first()
             logger.info(f"Successfully connected to sensor database: {database}")
             
         # Test prediction database and verify new tables
-        with next(get_prediction_db()) as session:
+        with get_prediction_db_context() as session:
             result = session.execute(text("SELECT current_timestamp, current_database()"))
             timestamp, database = result.first()
             logger.info(f"Successfully connected to prediction database: {database}")
