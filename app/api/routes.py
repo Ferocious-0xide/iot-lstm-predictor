@@ -5,6 +5,7 @@ from sqlalchemy import text
 from app.utils.db_utils import get_sensor_db, get_prediction_db, get_sensor_db_context
 from app.models.db_models import SensorReading, Prediction, ModelMetadata, TrainedModel
 from app.utils.model_utils import load_model_from_db
+from app.utils.model_persistence import ModelPersistence  # Add this import
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict
@@ -26,7 +27,16 @@ async def load_model(sensor_id: str, db: Session):
     """Load model from database if not already in memory"""
     if sensor_id not in models:
         try:
-            loaded_model = await load_model_from_db(db, f"sensor_{sensor_id}")
+            # Create ModelPersistence instance
+            model_persistence = ModelPersistence(db)
+            
+            # Try to load model using new persistence first
+            loaded_model = model_persistence.load_model(int(sensor_id))
+            
+            # Fallback to old method if new method returns None
+            if loaded_model is None:
+                loaded_model = await load_model_from_db(db, f"sensor_{sensor_id}")
+            
             if loaded_model:
                 models[sensor_id] = loaded_model
                 logger.info(f"Loaded model for sensor {sensor_id} from database")
@@ -38,6 +48,7 @@ async def load_model(sensor_id: str, db: Session):
             return None
     return models.get(sensor_id)
 
+# Keep existing route handlers unchanged
 @router.get("/api/v1/sensors/{sensor_id}/readings")
 async def get_sensor_readings(
     sensor_id: str,
@@ -136,20 +147,16 @@ async def get_predictions(
             )
         logger.info("Model loaded successfully")
         
-        # Prepare data
+        # Rest of the prediction logic remains unchanged
         logger.info("Preparing data for prediction...")
         temps = np.array([readings['temperature']])
         humids = np.array([readings['humidity']])
-        logger.info(f"Temperature data: {temps}")
-        logger.info(f"Humidity data: {humids}")
         
         # Normalize
-        logger.info("Normalizing data...")
         temps_norm = data_loader.normalize_data(temps, sensor_id, 'temperature')
         humids_norm = data_loader.normalize_data(humids, sensor_id, 'humidity')
         
         # Create sequence
-        logger.info("Creating prediction sequence...")
         sequence = np.column_stack((temps_norm, humids_norm))
         sequence = np.expand_dims(sequence, axis=0)
         
@@ -183,11 +190,20 @@ async def get_predictions(
                 current_sequence[:, 1:, :],
                 new_point.reshape(1, 1, 2)
             ], axis=1)
-            
-            logger.info(f"Prediction {step + 1} complete: Temp={float(temp_denorm):.2f}, Humidity={float(humid_denorm):.2f}")
         
+        # Store predictions using both old and new methods for safety
         logger.info("Storing predictions in database...")
         try:
+            model_persistence = ModelPersistence(db)
+            active_model = model_persistence.load_model(int(sensor_id))
+            if active_model:
+                model_record = (
+                    db.query(TrainedModel)
+                    .filter_by(sensor_id=int(sensor_id), is_active=True)
+                    .first()
+                )
+                model_id = model_record.id if model_record else None
+            
             for pred in predictions:
                 new_prediction = Prediction(
                     sensor_id=pred['sensor_id'],
@@ -195,7 +211,8 @@ async def get_predictions(
                     humidity_prediction=pred['humidity'],
                     prediction_timestamp=datetime.fromisoformat(pred['timestamp']),
                     created_at=datetime.utcnow(),
-                    confidence_score=0.95
+                    confidence_score=0.95,
+                    model_id=model_id if model_id else None  # Add model_id if available
                 )
                 db.add(new_prediction)
             db.commit()
@@ -211,6 +228,7 @@ async def get_predictions(
         logger.error(f"Error making predictions: {str(e)}")
         return {"status": "error", "detail": str(e)}
 
+# Keep existing stats route unchanged
 @router.get("/api/v1/sensors/stats")
 async def get_sensor_stats(
     db: Session = Depends(get_prediction_db)
