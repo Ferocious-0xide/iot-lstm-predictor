@@ -2,11 +2,17 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
+from pathlib import Path
 
 class Settings(BaseSettings):
-    # Database URLs from environment variables
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
-    HEROKU_POSTGRESQL_PURPLE_URL: str = os.getenv("HEROKU_POSTGRESQL_PURPLE_URL", "")
+    # Create data directory if it doesn't exist
+    data_dir: Path = Path("data")
+    data_dir.mkdir(exist_ok=True)
+
+    # Database URLs from environment variables with SQLite fallbacks
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{data_dir}/sensor.db")
+    HEROKU_POSTGRESQL_PURPLE_URL: str = os.getenv("HEROKU_POSTGRESQL_PURPLE_URL", 
+                                                 f"sqlite:///{data_dir}/predictions.db")
     
     # Application settings
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")

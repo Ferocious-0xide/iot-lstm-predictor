@@ -1,40 +1,47 @@
 # app/models/db_models.py
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, LargeBinary
+from sqlalchemy import (
+    Column, Integer, String, Float, DateTime, ForeignKey, 
+    LargeBinary, JSON, Boolean
+)
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 Base = declarative_base()
 
-class SensorReading(Base):
-    __tablename__ = "sensor_readings"
-    id = Column(Integer, primary_key=True, index=True)
-    sensor_id = Column(String)
-    temperature = Column(Float)
-    humidity = Column(Float)
-    timestamp = Column(DateTime)
-
-class Prediction(Base):
-    __tablename__ = "predictions"
-    id = Column(Integer, primary_key=True, index=True)
-    sensor_id = Column(String)
-    temperature_prediction = Column(Float)
-    humidity_prediction = Column(Float)
-    prediction_timestamp = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    confidence_score = Column(Float)
-
-class ModelMetadata(Base):
-    __tablename__ = "model_metadata"
-    id = Column(Integer, primary_key=True, index=True)
-    model_name = Column(String, unique=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    version = Column(String)
-    metrics = Column(String)  # JSON string of model metrics
+class Sensor(Base):
+    __tablename__ = "sensor"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    location = Column(String)
+    
+    # Relationships
+    trained_models = relationship("TrainedModel", back_populates="sensor")
+    predictions = relationship("Prediction", back_populates="sensor")
 
 class TrainedModel(Base):
-    __tablename__ = "trained_models"
-    id = Column(Integer, primary_key=True, index=True)
-    model_name = Column(String, unique=True)
-    model_data = Column(LargeBinary)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    __tablename__ = "trained_model"
+    id = Column(Integer, primary_key=True)
+    sensor_id = Column(Integer, ForeignKey('sensor.id'), nullable=False)
+    model_data = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    model_metrics = Column(JSON)
+    model_type = Column(String, nullable=False, default='lstm')  # Added to track model type
+    is_active = Column(Boolean, default=True)  # Added to track active model per sensor
+    
+    # Relationships
+    sensor = relationship("Sensor", back_populates="trained_models")
+    predictions = relationship("Prediction", back_populates="model")
+
+class Prediction(Base):
+    __tablename__ = "prediction"
+    id = Column(Integer, primary_key=True)
+    sensor_id = Column(Integer, ForeignKey('sensor.id'), nullable=False)
+    model_id = Column(Integer, ForeignKey('trained_model.id'), nullable=False)
+    prediction_value = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    confidence_score = Column(Float)  # Optional confidence score
+    
+    # Relationships
+    sensor = relationship("Sensor", back_populates="predictions")
+    model = relationship("TrainedModel", back_populates="predictions")
