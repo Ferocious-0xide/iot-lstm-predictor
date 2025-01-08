@@ -72,6 +72,64 @@ class PredictionService:
         except Exception as e:
             logger.error(f"Error preparing sequence: {str(e)}")
             raise
+    
+    def predict_sync(
+        self,
+        sensor_id: int,
+        readings: List[Dict],
+        steps_ahead: int = 1
+    ) -> List[Dict]:
+        """Synchronous version of predict for testing"""
+        try:
+            if len(readings) < 24:
+                raise ValueError("Need at least 24 readings for prediction")
+            
+            # Load model
+            model = self.load_model(sensor_id)
+            if model is None:
+                raise ValueError(f"No active model found for sensor {sensor_id}")
+            
+            # Prepare sequence
+            current_sequence = self.prepare_sequence(readings[-24:], sensor_id)
+            
+            # Make predictions
+            predictions = []
+            
+            for step in range(steps_ahead):
+                pred = model.predict(current_sequence, verbose=0)
+                temp_pred, humid_pred = pred[0][0], pred[1][0]
+                
+                # Denormalize predictions
+                temp_denorm = self.data_loader.denormalize_data(
+                    temp_pred, str(sensor_id), 'temperature'
+                )
+                humid_denorm = self.data_loader.denormalize_data(
+                    humid_pred, str(sensor_id), 'humidity'
+                )
+                
+                # Create timestamp
+                last_timestamp = datetime.fromisoformat(readings[-1]['timestamp'])
+                pred_timestamp = last_timestamp + timedelta(minutes=5 * (step + 1))
+                
+                predictions.append({
+                    'sensor_id': sensor_id,
+                    'timestamp': pred_timestamp.isoformat(),
+                    'temperature': float(temp_denorm),
+                    'humidity': float(humid_denorm)
+                })
+                
+                # Update sequence for next prediction
+                new_point = np.array([[temp_pred, humid_pred]])
+                current_sequence = np.concatenate([
+                    current_sequence[:, 1:, :],
+                    new_point.reshape(1, 1, 2)
+                ], axis=1)
+            
+            return predictions
+            
+        except Exception as e:
+            logger.error(f"Error making prediction: {str(e)}")
+            raise
 
     async def predict(
         self,
