@@ -17,6 +17,10 @@ import tempfile
 from app.utils.data_prep import SensorDataLoader
 
 # Rest of the imports remain the same
+router = APIRouter()
+logger = logging.getLogger(__name__)
+data_loader = SensorDataLoader()
+models = {} 
 
 @router.get("/api/v1/sensors/{sensor_id}/readings")
 async def get_sensor_readings(
