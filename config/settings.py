@@ -9,8 +9,9 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data")
     data_dir.mkdir(exist_ok=True)
 
-    # Single database URL for all operations
+    # Database URLs
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{data_dir}/sensor.db")
+    PREDICTION_DATABASE_URL: str = os.getenv("HEROKU_POSTGRESQL_PURPLE_URL", DATABASE_URL)
     
     # Application settings
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
@@ -33,9 +34,14 @@ class Settings(BaseSettings):
         return url
 
     @property
-    def database_url(self) -> str:
-        """Get the database URL with proper protocol"""
+    def sensor_database_url(self) -> str:
+        """Get the read-only sensor database URL"""
         return self._fix_postgres_url(self.DATABASE_URL)
+
+    @property
+    def prediction_database_url(self) -> str:
+        """Get the read-write prediction database URL"""
+        return self._fix_postgres_url(self.PREDICTION_DATABASE_URL)
 
 @lru_cache()
 def get_settings() -> Settings:
