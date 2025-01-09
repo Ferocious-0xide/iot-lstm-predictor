@@ -2,96 +2,84 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.utils.db_utils import get_sensor_db, get_prediction_db, get_sensor_db_context
-from app.models.db_models import Sensor, Prediction, TrainedModel
+from app.utils.db_utils import get_db, get_db_context
+from app.models.db_models import Sensor, Prediction, TrainedModel, SensorReading
 from app.utils.model_utils import load_model_from_db
 from app.utils.model_persistence import ModelPersistence
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 import tensorflow as tf
 import numpy as np
-import io
-import os
-import tempfile
 from app.utils.data_prep import SensorDataLoader
 
-# Initialize these at module level
+# Initialize router and logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 data_loader = SensorDataLoader()
 models = {}  # Cache for loaded models
 
-async def load_model(sensor_id: str, db: Session):
+async def load_model(sensor_id: int, db: Session) -> Optional[tf.keras.Model]:
     """Load model from database if not already in memory"""
-    if sensor_id not in models:
+    str_id = str(sensor_id)
+    if str_id not in models:
         try:
-            # Create ModelPersistence instance
             model_persistence = ModelPersistence(db)
-            
-            # Try to load model using new persistence first
-            loaded_model = model_persistence.load_model(int(sensor_id))
-            
-            # Fallback to old method if new method returns None
-            if loaded_model is None:
-                loaded_model = await load_model_from_db(db, f"sensor_{sensor_id}")
+            loaded_model = model_persistence.load_model(sensor_id)
             
             if loaded_model:
-                models[sensor_id] = loaded_model
+                models[str_id] = loaded_model
                 logger.info(f"Loaded model for sensor {sensor_id} from database")
             else:
-                logger.error(f"No model found in database for sensor {sensor_id}")
+                logger.error(f"No model found for sensor {sensor_id}")
                 return None
         except Exception as e:
             logger.error(f"Error loading model from database: {e}")
             return None
-    return models.get(sensor_id)
+    return models.get(str_id)
 
 @router.get("/api/v1/sensors/{sensor_id}/readings")
 async def get_sensor_readings(
-    sensor_id: str,
+    sensor_id: int,
     limit: int = 24,
-    db: Session = Depends(get_sensor_db)
+    db: Session = Depends(get_db)
 ):
-    """Get recent readings for a sensor from the external database"""
+    """Get recent readings for a sensor from the shared database"""
     try:
-        logger.info(f"Attempting to fetch readings for sensor {sensor_id}")
+        logger.info(f"Fetching readings for sensor {sensor_id}")
         
-        # Modified query to use new schema
-        query = text("""
-            SELECT s.id as sensor_id, t.prediction_value as temperature, 
-                   h.prediction_value as humidity, COALESCE(t.created_at, h.created_at) as timestamp
-            FROM sensor s
-            LEFT JOIN prediction t ON s.id = t.sensor_id 
-            LEFT JOIN prediction h ON s.id = h.sensor_id
-            WHERE s.id = :sensor_id
-            ORDER BY COALESCE(t.created_at, h.created_at) DESC
-            LIMIT :limit
-        """)
+        # Query the actual sensor readings table
+        readings = (
+            db.query(SensorReading)
+            .filter(SensorReading.sensor_id == sensor_id)
+            .order_by(SensorReading.timestamp.desc())
+            .limit(limit)
+            .all()
+        )
         
-        with get_sensor_db_context() as session:
-            result = session.execute(
-                query,
+        if not readings:
+            logger.warning(f"No readings found for sensor {sensor_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"No readings found for sensor {sensor_id}"
+            )
+        
+        # Get most recent reading
+        latest = readings[0]
+        return {
+            "sensor_id": str(latest.sensor_id),
+            "temperature": latest.temperature,
+            "humidity": latest.humidity,
+            "timestamp": latest.timestamp.isoformat(),
+            "historical": [
                 {
-                    "sensor_id": int(sensor_id),
-                    "limit": limit
+                    "timestamp": r.timestamp.isoformat(),
+                    "temperature": r.temperature,
+                    "humidity": r.humidity
                 }
-            ).fetchall()
-            
-            if not result:
-                logger.warning(f"No readings found for sensor {sensor_id}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"No readings found for sensor {sensor_id}"
-                )
-            
-            most_recent = result[0]
-            return {
-                "sensor_id": str(most_recent[0]),
-                "temperature": most_recent[1],
-                "humidity": most_recent[2],
-                "timestamp": most_recent[3].isoformat()
-            }
+                for r in readings[1:]  # Exclude the latest reading
+            ]
+        }
     
     except Exception as e:
         logger.error(f"Error fetching sensor readings: {str(e)}")
@@ -102,95 +90,75 @@ async def get_sensor_readings(
 
 @router.get("/api/v1/sensors/{sensor_id}/predict")
 async def get_predictions(
-    sensor_id: str,
+    sensor_id: int,
     steps_ahead: int = 3,
-    db: Session = Depends(get_prediction_db)
+    db: Session = Depends(get_db)
 ):
     """Get predictions for a sensor"""
     try:
         logger.info(f"Starting predictions for sensor {sensor_id}")
         
-        # Get latest readings using a new database session
-        logger.info("Fetching latest readings...")
-        with get_sensor_db_context() as sensor_db:
-            query = text("""
-                SELECT s.id as sensor_id, 
-                       t.prediction_value as temperature,
-                       h.prediction_value as humidity,
-                       COALESCE(t.created_at, h.created_at) as timestamp
-                FROM sensor s
-                LEFT JOIN prediction t ON s.id = t.sensor_id
-                LEFT JOIN prediction h ON s.id = h.sensor_id
-                WHERE s.id = :sensor_id
-                ORDER BY COALESCE(t.created_at, h.created_at) DESC
-                LIMIT 1
-            """)
-            result = sensor_db.execute(
-                query,
-                {"sensor_id": int(sensor_id)}
-            ).fetchone()
-            
-            if not result:
-                raise HTTPException(status_code=404, detail="No sensor readings found")
-            
-            readings = {
-                "sensor_id": str(result[0]),
-                "temperature": result[1],
-                "humidity": result[2],
-                "timestamp": result[3].isoformat()
-            }
+        # Get latest reading
+        latest_reading = (
+            db.query(SensorReading)
+            .filter(SensorReading.sensor_id == sensor_id)
+            .order_by(SensorReading.timestamp.desc())
+            .first()
+        )
         
-        logger.info(f"Got readings data: {readings}")
+        if not latest_reading:
+            raise HTTPException(
+                status_code=404,
+                detail="No sensor readings found"
+            )
         
-        # Load model from database if needed
-        logger.info("Loading model...")
+        readings = {
+            "sensor_id": str(latest_reading.sensor_id),
+            "temperature": latest_reading.temperature,
+            "humidity": latest_reading.humidity,
+            "timestamp": latest_reading.timestamp.isoformat()
+        }
+        
+        # Load and verify model
         model = await load_model(sensor_id, db)
         if not model:
-            logger.error(f"No model found for sensor {sensor_id}")
             raise HTTPException(
                 status_code=404,
                 detail=f"No model found for sensor {sensor_id}"
             )
-        logger.info("Model loaded successfully")
         
-        # Prepare data for prediction
-        logger.info("Preparing data for prediction...")
+        # Prepare data
         temps = np.array([readings['temperature']])
         humids = np.array([readings['humidity']])
         
         # Normalize
-        temps_norm = data_loader.normalize_data(temps, sensor_id, 'temperature')
-        humids_norm = data_loader.normalize_data(humids, sensor_id, 'humidity')
+        temps_norm = data_loader.normalize_data(temps, str(sensor_id), 'temperature')
+        humids_norm = data_loader.normalize_data(humids, str(sensor_id), 'humidity')
         
-        # Create sequence
-        sequence = np.column_stack((temps_norm, humids_norm))
-        sequence = np.expand_dims(sequence, axis=0)
-        
-        # Make predictions
+        # Create sequence and make predictions
+        sequence = np.expand_dims(np.column_stack((temps_norm, humids_norm)), axis=0)
         predictions = []
         current_sequence = sequence
         
         for step in range(steps_ahead):
-            logger.info(f"Making prediction {step + 1}/{steps_ahead}")
             pred = model.predict(current_sequence, verbose=0)
             temp_pred, humid_pred = pred[0][0], pred[1][0]
             
             # Denormalize
-            temp_denorm = data_loader.denormalize_data(temp_pred, sensor_id, 'temperature')
-            humid_denorm = data_loader.denormalize_data(humid_pred, sensor_id, 'humidity')
+            temp_denorm = data_loader.denormalize_data(temp_pred, str(sensor_id), 'temperature')
+            humid_denorm = data_loader.denormalize_data(humid_pred, str(sensor_id), 'humidity')
             
-            # Create timestamp
-            last_timestamp = datetime.fromisoformat(readings['timestamp'])
-            pred_timestamp = last_timestamp + timedelta(minutes=5 * (step + 1))
+            # Calculate timestamp
+            pred_timestamp = latest_reading.timestamp + timedelta(minutes=5 * (step + 1))
             
             predictions.append({
-                'sensor_id': int(sensor_id),
+                'sensor_id': sensor_id,
                 'timestamp': pred_timestamp.isoformat(),
                 'temperature': float(temp_denorm),
                 'humidity': float(humid_denorm)
             })
             
-            # Update sequence for next prediction
+            # Update sequence
             new_point = np.array([[temp_pred, humid_pred]])
             current_sequence = np.concatenate([
                 current_sequence[:, 1:, :],
@@ -201,7 +169,7 @@ async def get_predictions(
         try:
             active_model = (
                 db.query(TrainedModel)
-                .filter_by(sensor_id=int(sensor_id), is_active=True)
+                .filter_by(sensor_id=sensor_id, is_active=True)
                 .first()
             )
             
@@ -212,6 +180,7 @@ async def get_predictions(
                         sensor_id=pred['sensor_id'],
                         model_id=active_model.id,
                         prediction_value=pred['temperature'],
+                        prediction_type='temperature',
                         created_at=datetime.fromisoformat(pred['timestamp']),
                         confidence_score=0.95
                     )
@@ -222,13 +191,14 @@ async def get_predictions(
                         sensor_id=pred['sensor_id'],
                         model_id=active_model.id,
                         prediction_value=pred['humidity'],
+                        prediction_type='humidity',
                         created_at=datetime.fromisoformat(pred['timestamp']),
                         confidence_score=0.95
                     )
                     db.add(humid_prediction)
                 
                 db.commit()
-                logger.info("Predictions stored successfully")
+                logger.info(f"Stored {len(predictions) * 2} predictions successfully")
         except Exception as db_error:
             logger.error(f"Error storing predictions: {str(db_error)}")
             db.rollback()
@@ -237,46 +207,82 @@ async def get_predictions(
                 detail=f"Error storing predictions: {str(db_error)}"
             )
         
-        return {"status": "success", "predictions": predictions}
+        return {
+            "status": "success",
+            "predictions": predictions,
+            "latest_reading": readings
+        }
         
     except Exception as e:
         logger.error(f"Error making predictions: {str(e)}")
         return {"status": "error", "detail": str(e)}
 
 @router.get("/api/v1/sensors/stats")
-async def get_sensor_stats(
-    db: Session = Depends(get_prediction_db)
-):
+async def get_sensor_stats(db: Session = Depends(get_db)):
     """Get statistics for all sensors"""
     try:
-        stats_query = text("""
-            WITH sensor_stats AS (
-                SELECT 
-                    s.id as sensor_id,
-                    COUNT(p.id) as prediction_count,
-                    MAX(p.created_at) as latest_prediction,
-                    AVG(p.prediction_value) as avg_prediction
-                FROM sensor s
-                LEFT JOIN prediction p ON s.id = p.sensor_id
-                GROUP BY s.id
-            )
+        # Get actual readings stats
+        readings_query = text("""
             SELECT 
-                s.sensor_id,
-                s.prediction_count,
-                s.latest_prediction,
-                s.avg_prediction
-            FROM sensor_stats s
-            ORDER BY s.sensor_id
+                sensor_id,
+                COUNT(*) as reading_count,
+                AVG(temperature) as avg_temperature,
+                AVG(humidity) as avg_humidity,
+                MAX(timestamp) as latest_reading
+            FROM sensor_readings
+            GROUP BY sensor_id
+            ORDER BY sensor_id
         """)
         
-        result = db.execute(stats_query).fetchall()
+        # Get predictions stats
+        predictions_query = text("""
+            WITH prediction_stats AS (
+                SELECT 
+                    sensor_id,
+                    prediction_type,
+                    COUNT(*) as prediction_count,
+                    AVG(prediction_value) as avg_value,
+                    MAX(created_at) as latest_prediction
+                FROM prediction
+                GROUP BY sensor_id, prediction_type
+            )
+            SELECT 
+                s.id as sensor_id,
+                s.name,
+                s.location,
+                pt.prediction_count as temp_predictions,
+                ph.prediction_count as humid_predictions,
+                pt.avg_value as avg_temp_prediction,
+                ph.avg_value as avg_humid_prediction
+            FROM sensor s
+            LEFT JOIN prediction_stats pt ON s.id = pt.sensor_id AND pt.prediction_type = 'temperature'
+            LEFT JOIN prediction_stats ph ON s.id = ph.sensor_id AND ph.prediction_type = 'humidity'
+            ORDER BY s.id
+        """)
         
-        stats = [{
-            "sensor_id": row[0],
-            "prediction_count": row[1],
-            "latest_prediction": row[2].isoformat() if row[2] else None,
-            "avg_prediction": round(float(row[3]), 2) if row[3] else None
-        } for row in result]
+        readings_stats = db.execute(readings_query).fetchall()
+        prediction_stats = db.execute(predictions_query).fetchall()
+        
+        # Combine stats
+        stats = []
+        for r_stat in readings_stats:
+            p_stat = next(
+                (p for p in prediction_stats if p.sensor_id == r_stat.sensor_id), 
+                None
+            )
+            
+            stats.append({
+                "sensor_id": r_stat.sensor_id,
+                "reading_count": r_stat.reading_count,
+                "avg_temperature": round(float(r_stat.avg_temperature), 2),
+                "avg_humidity": round(float(r_stat.avg_humidity), 2),
+                "latest_reading": r_stat.latest_reading.isoformat(),
+                "prediction_counts": {
+                    "temperature": p_stat.temp_predictions if p_stat else 0,
+                    "humidity": p_stat.humid_predictions if p_stat else 0
+                } if p_stat else None,
+                "location": p_stat.location if p_stat else None
+            })
         
         return stats
     except Exception as e:

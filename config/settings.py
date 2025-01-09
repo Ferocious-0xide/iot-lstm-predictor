@@ -9,10 +9,8 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data")
     data_dir.mkdir(exist_ok=True)
 
-    # Database URLs from environment variables with SQLite fallbacks
+    # Single database URL for all operations
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{data_dir}/sensor.db")
-    HEROKU_POSTGRESQL_PURPLE_URL: str = os.getenv("HEROKU_POSTGRESQL_PURPLE_URL", 
-                                                 f"sqlite:///{data_dir}/predictions.db")
     
     # Application settings
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
@@ -26,7 +24,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-        # Allow extra fields to prevent validation errors
         extra = 'allow'
 
     def _fix_postgres_url(self, url: str) -> str:
@@ -36,16 +33,9 @@ class Settings(BaseSettings):
         return url
 
     @property
-    def sensor_database_url(self) -> str:
-        """Get the sensor database URL (follower database)"""
+    def database_url(self) -> str:
+        """Get the database URL with proper protocol"""
         return self._fix_postgres_url(self.DATABASE_URL)
-
-    @property
-    def prediction_database_url(self) -> str:
-        """Get the predictor app's database URL"""
-        # First try HEROKU_POSTGRESQL_PURPLE_URL, fall back to DATABASE_URL
-        url = self.HEROKU_POSTGRESQL_PURPLE_URL or self.DATABASE_URL
-        return self._fix_postgres_url(url)
 
 @lru_cache()
 def get_settings() -> Settings:
