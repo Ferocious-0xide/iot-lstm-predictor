@@ -5,19 +5,10 @@
 
 {% block content %}
 <div class="container mt-4">
-    <!-- Heroku Header -->
+    <!-- Header -->
     <div class="rounded-lg shadow-md bg-[#4A1C9C] text-white p-5 mb-5">
         <div class="flex items-center">
-            <div class="flex items-center gap-5 mr-5">
-                <!-- Using styled divs instead of images for reliability -->
-                <div class="h-12 w-12 bg-white/20 rounded flex items-center justify-center">
-                    <span class="text-2xl font-bold">H</span>
-                </div>
-                <div class="h-12 w-12 bg-white/20 rounded flex items-center justify-center">
-                    <span class="text-2xl font-bold">K</span>
-                </div>
-            </div>
-            <h1 class="text-2xl font-bold m-0 flex-grow">Sensor Dashboard</h1>
+            <h1 class="text-2xl font-bold m-0 flex-grow">IoT LSTM Predictor</h1>
         </div>
     </div>
 
@@ -92,28 +83,6 @@
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </div>
-
-        <!-- Data Flow Visualization -->
-        <div class="bg-white p-4 rounded-lg shadow-md col-span-full">
-            <h2 class="text-xl font-bold mb-4">Data Flow Visualization</h2>
-            <div class="space-y-4">
-                {% for i in range(1, 6) %}
-                <div class="flex items-center gap-4">
-                    <div class="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
-                        S{{ i }}
-                    </div>
-                    <div class="flex-1 h-1 bg-gradient-to-r from-gray-300 to-blue-500 animate-pulse"></div>
-                    <div class="px-3 py-2 bg-green-500 text-white rounded">
-                        Kafka
-                    </div>
-                    <div class="flex-1 h-1 bg-gradient-to-r from-gray-300 to-blue-500 animate-pulse"></div>
-                    <div class="w-10 h-10 bg-red-500 rounded flex items-center justify-center text-white">
-                        DB
-                    </div>
-                </div>
-                {% endfor %}
             </div>
         </div>
     </div>
