@@ -9,12 +9,13 @@
     <div class="rounded-lg shadow-md bg-[#4A1C9C] text-white p-5 mb-5">
         <div class="flex items-center">
             <div class="flex items-center gap-5 mr-5">
-                <img src="{{ url_for('static', filename='images/logo-outline-white-128.png') }}" 
-                     class="h-12 w-auto" 
-                     alt="Heroku Logo">
-                <img src="{{ url_for('static', filename='images/kafka-white-128.png') }}" 
-                     class="h-12 w-auto" 
-                     alt="Kafka Logo">
+                <!-- Using styled divs instead of images for reliability -->
+                <div class="h-12 w-12 bg-white/20 rounded flex items-center justify-center">
+                    <span class="text-2xl font-bold">H</span>
+                </div>
+                <div class="h-12 w-12 bg-white/20 rounded flex items-center justify-center">
+                    <span class="text-2xl font-bold">K</span>
+                </div>
             </div>
             <h1 class="text-2xl font-bold m-0 flex-grow">Sensor Dashboard</h1>
         </div>
@@ -26,44 +27,41 @@
         <div class="bg-white p-4 rounded-lg shadow-md">
             <h2 class="text-xl font-bold mb-4">Sensor Selection</h2>
             <select class="w-full p-2 border rounded"
-                    hx-get="/api/v1/sensors/data"
+                    hx-get="/api/v1/sensors/{sensor_id}/readings"
                     hx-trigger="change"
-                    hx-target="#sensor-data"
-                    name="sensor_id">
+                    hx-target="#current-readings"
+                    name="sensor_id"
+                    hx-swap="innerHTML">
                 {% for sensor in sensors %}
-                <option value="{{ sensor }}">Sensor {{ sensor }}</option>
+                <option value="{{ sensor }}" {% if sensor == current_sensor %}selected{% endif %}>
+                    Sensor {{ sensor }}
+                </option>
                 {% endfor %}
             </select>
         </div>
 
-        <!-- Current Readings and Predictions Container -->
-        <div id="sensor-data"
-             class="grid grid-cols-1 gap-4"
-             hx-get="/api/v1/sensors/1/data"
-             hx-trigger="load every 5s">
-            <!-- Current Readings -->
-            <div class="bg-white p-4 rounded-lg shadow-md">
-                <h2 class="text-xl font-bold mb-4">Current Readings</h2>
-                <div id="current-readings" class="p-4">
-                    {% if readings %}
-                        Temperature: {{ "%.1f"|format(readings.temperature) }}°C<br>
-                        Humidity: {{ "%.1f"|format(readings.humidity) }}%<br>
-                        Time: {{ readings.timestamp.strftime('%H:%M:%S') }}
-                    {% else %}
-                        Loading readings...
-                    {% endif %}
+        <!-- Current Readings -->
+        <div class="bg-white p-4 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold mb-4">Current Readings</h2>
+            <div id="current-readings" 
+                 class="p-4"
+                 hx-get="/api/v1/sensors/{{ default_sensor }}/readings"
+                 hx-trigger="load every 5s">
+                <div class="animate-pulse">
+                    Loading readings...
                 </div>
             </div>
+        </div>
 
-            <!-- Predictions -->
-            <div class="bg-white p-4 rounded-lg shadow-md">
-                <h2 class="text-xl font-bold mb-4">Predictions</h2>
-                <div id="predictions" class="p-4">
-                    {% if predictions %}
-                        {{ predictions | safe }}
-                    {% else %}
-                        Computing predictions...
-                    {% endif %}
+        <!-- Predictions -->
+        <div class="bg-white p-4 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold mb-4">Predictions</h2>
+            <div id="predictions" 
+                 class="p-4"
+                 hx-get="/api/v1/sensors/{{ default_sensor }}/predict"
+                 hx-trigger="load">
+                <div class="animate-pulse">
+                    Computing predictions...
                 </div>
             </div>
         </div>
@@ -72,35 +70,34 @@
         <div class="bg-white p-4 rounded-lg shadow-md">
             <h2 class="text-xl font-bold mb-4">Sensor Statistics</h2>
             <div id="sensor-stats"
+                 class="p-4"
                  hx-get="/api/v1/sensors/stats"
-                 hx-trigger="load every 10s"
-                 class="p-4">
-                {% if stats %}
+                 hx-trigger="load every 10s">
+                <div class="space-y-4">
                     <table class="w-full">
                         <thead>
                             <tr>
-                                <th class="text-left">Metric</th>
-                                <th class="text-left">Value</th>
+                                <th class="text-left px-4 py-2">Sensor</th>
+                                <th class="text-right px-4 py-2">Temperature</th>
+                                <th class="text-right px-4 py-2">Humidity</th>
+                                <th class="text-right px-4 py-2">Updates</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for stat in stats %}
                             <tr>
-                                <td>{{ stat.name }}</td>
-                                <td>{{ stat.value }}</td>
+                                <td colspan="4" class="text-center py-4">
+                                    <div class="animate-pulse">Loading statistics...</div>
+                                </td>
                             </tr>
-                            {% endfor %}
                         </tbody>
                     </table>
-                {% else %}
-                    Loading statistics...
-                {% endif %}
+                </div>
             </div>
         </div>
 
         <!-- Data Flow Visualization -->
-        <div class="bg-white p-4 rounded-lg shadow-md">
-            <h2 class="text-xl font-bold mb-4">Data Flow</h2>
+        <div class="bg-white p-4 rounded-lg shadow-md col-span-full">
+            <h2 class="text-xl font-bold mb-4">Data Flow Visualization</h2>
             <div class="space-y-4">
                 {% for i in range(1, 6) %}
                 <div class="flex items-center gap-4">
