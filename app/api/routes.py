@@ -73,11 +73,16 @@ async def get_sensor_readings(sensor_id: int, limit: int = 24, db: Session = Dep
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/v1/sensors/{sensor_id}/predict")
-async def get_predictions(sensor_id: int, steps_ahead: int = 3, db: Session = Depends(get_db)):
+async def get_predictions(
+    sensor_id: int,
+    steps_ahead: int = 3,
+    sensor_db: Session = Depends(get_sensor_db),    # For reading sensor data
+    pred_db: Session = Depends(get_prediction_db)    # For storing predictions
+):
     try:
         logger.info(f"Starting predictions for sensor {sensor_id}")
         
-        # Get latest reading
+        # Get latest reading from sensor database
         latest_query = text("""
             SELECT sensor_id, temperature, humidity, timestamp
             FROM sensor_readings
@@ -86,7 +91,7 @@ async def get_predictions(sensor_id: int, steps_ahead: int = 3, db: Session = De
             LIMIT 1
         """)
         
-        latest_reading = db.execute(latest_query, {"sensor_id": sensor_id}).first()
+        latest_reading = sensor_db.execute(latest_query, {"sensor_id": sensor_id}).first()
         
         if not latest_reading:
             raise HTTPException(status_code=404, detail="No sensor readings found")
@@ -98,11 +103,12 @@ async def get_predictions(sensor_id: int, steps_ahead: int = 3, db: Session = De
             "timestamp": latest_reading.timestamp.isoformat()
         }
         
-        # Load model and make predictions
-        model = await load_model(sensor_id, db)
+        # Load model from prediction database
+        model = await load_model(sensor_id, pred_db)
         if not model:
             raise HTTPException(status_code=404, detail=f"No model found for sensor {sensor_id}")
         
+        # Make predictions
         temps = np.array([readings['temperature']])
         humids = np.array([readings['humidity']])
         
@@ -132,13 +138,16 @@ async def get_predictions(sensor_id: int, steps_ahead: int = 3, db: Session = De
             new_point = np.array([[temp_pred, humid_pred]])
             current_sequence = np.concatenate([current_sequence[:, 1:, :], new_point.reshape(1, 1, 2)], axis=1)
         
-        # Store predictions
+        # Store predictions in prediction database
         try:
-            active_model = db.query(TrainedModel).filter_by(sensor_id=sensor_id, is_active=True).first()
+            active_model = (
+                pred_db.query(TrainedModel)
+                .filter_by(sensor_id=sensor_id, is_active=True)
+                .first()
+            )
             
             if active_model:
                 for pred in predictions:
-                    # Store temperature prediction
                     temp_prediction = Prediction(
                         sensor_id=pred['sensor_id'],
                         model_id=active_model.id,
@@ -147,9 +156,8 @@ async def get_predictions(sensor_id: int, steps_ahead: int = 3, db: Session = De
                         created_at=datetime.fromisoformat(pred['timestamp']),
                         confidence_score=0.95
                     )
-                    db.add(temp_prediction)
+                    pred_db.add(temp_prediction)
                     
-                    # Store humidity prediction
                     humid_prediction = Prediction(
                         sensor_id=pred['sensor_id'],
                         model_id=active_model.id,
@@ -158,13 +166,14 @@ async def get_predictions(sensor_id: int, steps_ahead: int = 3, db: Session = De
                         created_at=datetime.fromisoformat(pred['timestamp']),
                         confidence_score=0.95
                     )
-                    db.add(humid_prediction)
+                    pred_db.add(humid_prediction)
                 
-                db.commit()
+                pred_db.commit()
                 logger.info(f"Stored {len(predictions) * 2} predictions")
+                
         except Exception as db_error:
             logger.error(f"Error storing predictions: {str(db_error)}")
-            db.rollback()
+            pred_db.rollback()
             raise HTTPException(status_code=500, detail=str(db_error))
         
         return {
@@ -176,7 +185,7 @@ async def get_predictions(sensor_id: int, steps_ahead: int = 3, db: Session = De
     except Exception as e:
         logger.error(f"Error making predictions: {str(e)}")
         return {"status": "error", "detail": str(e)}
-
+    
 @router.get("/api/v1/sensors/stats")
 async def get_sensor_stats(db: Session = Depends(get_db)):
     try:

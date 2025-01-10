@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # Create separate engines for sensor and prediction databases
-sensor_engine = create_engine(settings.sensor_database_url)
-prediction_engine = create_engine(settings.prediction_database_url)
+sensor_engine = create_engine(settings.DATABASE_URL)
+prediction_engine = create_engine(settings.PREDICTION_DATABASE_URL)
 
 # Create session factories for each database
 SensorSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sensor_engine)
@@ -36,24 +36,5 @@ def get_prediction_db():
     finally:
         db.close()
 
-@contextmanager
-def get_sensor_db_context():
-    """Context manager for sensor database sessions"""
-    db = SensorSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-@contextmanager
-def get_prediction_db_context():
-    """Context manager for prediction database sessions"""
-    db = PredictionSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# Alias the prediction db as the default for compatibility
+# For backward compatibility and places where we only need predictions
 get_db = get_prediction_db
-get_db_context = get_prediction_db_context
