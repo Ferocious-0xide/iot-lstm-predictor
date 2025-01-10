@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.utils.db_utils import get_db
+from app.utils.db_utils import get_db, get_sensor_db, get_prediction_db
 from app.models.db_models import Prediction, TrainedModel, SensorReading
 from app.utils.model_utils import load_model_from_db
 from app.utils.model_persistence import ModelPersistence
@@ -12,7 +12,7 @@ import tensorflow as tf
 import numpy as np
 from app.utils.data_prep import SensorDataLoader
 
-# Initialize router and logging FIRST
+# Initialize router and logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 data_loader = SensorDataLoader()
@@ -36,9 +36,15 @@ async def load_model(sensor_id: int, db: Session) -> tf.keras.Model:
     return models.get(str_id)
 
 @router.get("/api/v1/sensors/{sensor_id}/readings")
-async def get_sensor_readings(sensor_id: int, limit: int = 24, db: Session = Depends(get_db)):
+async def get_sensor_readings(
+    sensor_id: int,
+    limit: int = 24,
+    db: Session = Depends(get_sensor_db)
+):
+    """Get recent readings for a sensor"""
     try:
         logger.info(f"Fetching readings for sensor {sensor_id}")
+        
         query = text("""
             SELECT sensor_id, temperature, humidity, timestamp
             FROM sensor_readings
@@ -50,7 +56,11 @@ async def get_sensor_readings(sensor_id: int, limit: int = 24, db: Session = Dep
         readings = db.execute(query, {"sensor_id": sensor_id, "limit": limit}).fetchall()
         
         if not readings:
-            raise HTTPException(status_code=404, detail=f"No readings found for sensor {sensor_id}")
+            logger.warning(f"No readings found for sensor {sensor_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"No readings found for sensor {sensor_id}"
+            )
         
         latest = readings[0]
         return {
@@ -70,15 +80,19 @@ async def get_sensor_readings(sensor_id: int, limit: int = 24, db: Session = Dep
     
     except Exception as e:
         logger.error(f"Error fetching sensor readings: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching sensor readings: {str(e)}"
+        )
 
 @router.get("/api/v1/sensors/{sensor_id}/predict")
 async def get_predictions(
     sensor_id: int,
     steps_ahead: int = 3,
-    sensor_db: Session = Depends(get_sensor_db),    # For reading sensor data
-    pred_db: Session = Depends(get_prediction_db)    # For storing predictions
+    sensor_db: Session = Depends(get_sensor_db),
+    pred_db: Session = Depends(get_prediction_db)
 ):
+    """Get predictions for a sensor"""
     try:
         logger.info(f"Starting predictions for sensor {sensor_id}")
         
@@ -169,7 +183,7 @@ async def get_predictions(
                     pred_db.add(humid_prediction)
                 
                 pred_db.commit()
-                logger.info(f"Stored {len(predictions) * 2} predictions")
+                logger.info(f"Stored {len(predictions) * 2} predictions successfully")
                 
         except Exception as db_error:
             logger.error(f"Error storing predictions: {str(db_error)}")
@@ -185,9 +199,13 @@ async def get_predictions(
     except Exception as e:
         logger.error(f"Error making predictions: {str(e)}")
         return {"status": "error", "detail": str(e)}
-    
+
 @router.get("/api/v1/sensors/stats")
-async def get_sensor_stats(db: Session = Depends(get_db)):
+async def get_sensor_stats(
+    sensor_db: Session = Depends(get_sensor_db),
+    pred_db: Session = Depends(get_prediction_db)
+):
+    """Get statistics for all sensors"""
     try:
         readings_query = text("""
             SELECT 
@@ -201,16 +219,52 @@ async def get_sensor_stats(db: Session = Depends(get_db)):
             ORDER BY sensor_id
         """)
         
-        readings_stats = db.execute(readings_query).fetchall()
+        # Get predictions stats from prediction database
+        predictions_query = text("""
+            SELECT 
+                p.sensor_id,
+                p.prediction_type,
+                COUNT(*) as prediction_count,
+                AVG(p.prediction_value) as avg_value,
+                MAX(p.created_at) as latest_prediction
+            FROM prediction p
+            GROUP BY p.sensor_id, p.prediction_type
+            ORDER BY p.sensor_id
+        """)
+        
+        readings_stats = sensor_db.execute(readings_query).fetchall()
+        prediction_stats = pred_db.execute(predictions_query).fetchall()
         
         stats = []
         for r_stat in readings_stats:
+            # Find matching prediction stats
+            temp_pred = next(
+                (p for p in prediction_stats 
+                 if p.sensor_id == r_stat.sensor_id and p.prediction_type == 'temperature'),
+                None
+            )
+            humid_pred = next(
+                (p for p in prediction_stats 
+                 if p.sensor_id == r_stat.sensor_id and p.prediction_type == 'humidity'),
+                None
+            )
+            
             stats.append({
                 "sensor_id": r_stat.sensor_id,
                 "reading_count": r_stat.reading_count,
                 "avg_temperature": round(float(r_stat.avg_temperature), 2),
                 "avg_humidity": round(float(r_stat.avg_humidity), 2),
-                "latest_reading": r_stat.latest_reading.isoformat()
+                "latest_reading": r_stat.latest_reading.isoformat(),
+                "predictions": {
+                    "temperature": {
+                        "count": temp_pred.prediction_count if temp_pred else 0,
+                        "avg_value": round(float(temp_pred.avg_value), 2) if temp_pred else None
+                    },
+                    "humidity": {
+                        "count": humid_pred.prediction_count if humid_pred else 0,
+                        "avg_value": round(float(humid_pred.avg_value), 2) if humid_pred else None
+                    }
+                }
             })
         
         return stats

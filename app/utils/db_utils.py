@@ -9,8 +9,17 @@ import logging
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+__all__ = [
+    'Base', 
+    'get_db', 
+    'get_db_context', 
+    'get_sensor_db', 
+    'get_prediction_db',
+    'get_sensor_db_context',
+    'get_prediction_db_context'
+]
+
 # Create separate engines for sensor and prediction databases
-# Note: Using postgresql:// instead of postgres://
 sensor_engine = create_engine(settings.DATABASE_URL.replace("postgres://", "postgresql://"))
 prediction_engine = create_engine(settings.PREDICTION_DATABASE_URL.replace("postgres://", "postgresql://"))
 
