@@ -22,7 +22,7 @@ if config.config_file_name is not None:
 
 # Get database URL from settings
 settings = get_settings()
-db_url = settings.database_url  # Updated to use DATABASE_URL
+db_url = settings.prediction_database_url  # Use prediction database for migrations
 
 # Override sqlalchemy.url in alembic.ini
 if not db_url:
